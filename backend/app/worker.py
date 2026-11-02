@@ -48,6 +48,17 @@ async def needs_prices(pool) -> bool:
         os.environ.get("FETCH_PRICES", "").lower() in ("1", "true", "yes")
 
 
+async def backfill_quality(pool) -> str | None:
+    """Once: materialise quality_1h for raw data that predates the migration
+    (the refresh policy only looks back 3 days, raw data is kept 30)."""
+    if await pool.fetchval("SELECT EXISTS (SELECT 1 FROM setting WHERE key = 'quality_backfilled')"):
+        return None
+    await pool.execute("CALL refresh_continuous_aggregate('quality_1h', NULL, now() - interval '1 hour')")
+    await pool.execute("INSERT INTO setting (key, value) VALUES ('quality_backfilled', 'true'::jsonb) "
+                       "ON CONFLICT (key) DO NOTHING")
+    return "quality_1h backfilled"
+
+
 async def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -65,6 +76,12 @@ async def main() -> None:
     async def alert_job():
         n = await alerts.run_rules(pool, client, datetime.now(timezone.utc))
         return f"{n} alert(s)" if n else None
+
+    try:
+        if msg := await backfill_quality(pool):
+            log.info(msg)
+    except Exception:
+        log.exception("quality backfill failed")
 
     log.info("worker started")
     await asyncio.gather(

@@ -18,7 +18,7 @@ function label(loc, view, d) {
   }
 }
 
-function title(loc, view, { start, end }) {
+export function title(loc, view, { start, end }) {
   switch (view) {
     case "day": return start.toLocaleDateString(loc, { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: TZ });
     case "week": {

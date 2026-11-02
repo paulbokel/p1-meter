@@ -12,8 +12,8 @@ Design: *Functional Design – Local P1 Energy Monitor* (Claude Doc).
 | --- | --- | --- |
 | 1 – Collect | Compose stack, collector (v1 driver), TimescaleDB schema, status page, nightly backup | done |
 | 2 – See | Live dashboard, history views, CSV export, users | done |
-| 3 – Energy+ parity | Tariffs & costs, base-load analysis, anomaly alerts | **this release** |
-| 4 – Integrate | API tokens, MQTT/HA discovery, v2 driver, power quality | planned |
+| 3 – Energy+ parity | Tariffs & costs, base-load analysis, anomaly alerts | done |
+| 4 – Integrate | API tokens, Prometheus, MQTT/HA discovery, v2 driver, power quality | **this release** |
 | 5 – Act | Solar surplus rules, cheapest-hours planner, kiosk mode | planned |
 
 ## Architecture
@@ -117,6 +117,47 @@ it at port 8000 instead.
   email (SMTP), ntfy, Telegram, Home Assistant notify and a generic webhook;
   each has a *Test* button.
 
+## Integrations and power quality
+
+* **Meter settings** (*Settings → Meter*, admin): host, driver and poll
+  interval. Values saved here override `.env`; the collector restarts itself
+  within 30 s to apply them.
+* **API v2 driver**: meters with firmware 6.00 or newer push readings over a
+  WebSocket (`wss://<meter>/api/ws`). Click *Pair for API v2*, press the
+  button on the meter within 30 s, then pick *API v2* and save. Without the
+  web app: `docker compose run --rm collector python -m p1collector.pair
+  <meter-ip>` prints a token for `P1_TOKEN` (with `P1_DRIVER=v2`). The
+  meter's certificate is issued by HomeWizard for a serial-based name, so the
+  connection is encrypted but the name is not verified; set `P1_CA_FILE` to
+  the HomeWizard CA to verify the chain.
+* **API tokens** (*Settings → API tokens*, admin): read-only bearer tokens
+  for scripts, Grafana or Prometheus. A token only allows GET requests and
+  never has admin rights; revoke it at any time. The full API is documented at
+  `/api/docs`.
+* **Prometheus**: `GET /metrics` (with a token) exposes power, voltage and
+  current per phase, the meter counters (import/export per tariff, gas,
+  sags/swells, power failures), collector health and database size.
+
+  ```yaml
+  - job_name: p1
+    scrape_interval: 15s
+    static_configs: [{ targets: ["p1-monitor:8000"] }]
+    authorization: { type: Bearer, credentials: p1_... }
+  ```
+* **MQTT + Home Assistant**: set `MQTT_HOST` (and `MQTT_USER` /
+  `MQTT_PASSWORD`) in `.env` and run `docker compose --profile mqtt up -d`.
+  The bridge publishes the latest reading on `p1monitor/state` every
+  `MQTT_INTERVAL` seconds, today's totals on `p1monitor/today`, availability
+  on `p1monitor/status`, and Home Assistant discovery configs under
+  `homeassistant/sensor/p1monitor/…`. The import/export/gas counters are
+  `total_increasing` energy/gas sensors, so they can be added to the HA
+  Energy dashboard directly.
+* **Power quality** (*Power quality* page): voltage per phase with a min/max
+  band (5 min for up to 3 days, hourly up to 3 months, daily beyond), a
+  per-day table with min/max voltage, sags, swells and outages, and a log of
+  power failures, sags/swells and meter outages. Hourly voltage data is kept
+  without a time limit.
+
 ## Backup and restore
 
 Dumps land in `./backups` (or `BACKUP_DIR`). Make a backup on demand:
@@ -174,9 +215,14 @@ pip install -r collector/requirements.txt -r backend/requirements.txt pytest htt
 | --- | --- | --- |
 | `POSTGRES_PASSWORD` | — (required) | Database password |
 | `P1_HOST` | `192.168.178.187` | Meter IP or host[:port] |
-| `P1_DRIVER` | `v1` | `v1` (REST). `v2` follows in phase 4 |
+| `P1_DRIVER` | `v1` | `v1` (REST) or `v2` (WebSocket, needs `P1_TOKEN`); overridden by *Settings → Meter* |
+| `P1_TOKEN` | — | API v2 token from pairing |
+| `P1_CA_FILE` | — | HomeWizard CA file to verify the v2 certificate chain |
 | `P1_POLL_INTERVAL` | `1` | Seconds between polls (min 0.5) |
 | `BACKEND_PORT` | `8000` | Port the web app listens on |
 | `P1_HOSTNAME` | `localhost` | Hostname for Caddy (profile `proxy`) |
 | `FETCH_PRICES` | `false` | Fetch day-ahead prices even without a dynamic contract |
 | `BACKUP_HOUR` / `BACKUP_KEEP` / `BACKUP_DIR` | `3` / `14` / `./backups` | Nightly backup |
+| `MQTT_HOST` / `MQTT_PORT` | — / `1883` | Broker for the `mqtt` profile |
+| `MQTT_USER` / `MQTT_PASSWORD` | — | Broker login |
+| `MQTT_TOPIC` / `MQTT_DISCOVERY_PREFIX` / `MQTT_INTERVAL` | `p1monitor` / `homeassistant` / `5` | Topics and publish interval (s) |

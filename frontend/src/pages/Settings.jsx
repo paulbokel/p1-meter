@@ -8,7 +8,9 @@ export default function Settings({ user, setUser }) {
     <div className="stack">
       <Account user={user} setUser={setUser} t={t} />
       <Contracts admin={user.role === "admin"} t={t} />
+      {user.role === "admin" && <Meter t={t} />}
       {user.role === "admin" && <Users me={user} t={t} />}
+      {user.role === "admin" && <Tokens t={t} />}
     </div>
   );
 }
@@ -168,6 +170,117 @@ function Contracts({ admin, t }) {
             <button type="button" className="btn" onClick={() => setForm(null)}>{t("cancel")}</button></div>
         </form>
       )}
+      {err && <p className="err small">{err}</p>}
+    </section>
+  );
+}
+
+function Meter({ t }) {
+  const [cfg, setCfg] = useState(null);
+  const [form, setForm] = useState({ host: "", driver: "v1", interval: 1 });
+  const [msg, setMsg] = useState("");
+  const [pairing, setPairing] = useState(false);
+  const load = useCallback(() => api("/api/meter/config").then((c) => {
+    setCfg(c);
+    setForm({ host: c.host || c.active?.host || "", driver: c.driver || c.active?.driver || "v1", interval: c.interval || 1 });
+  }).catch((e) => setMsg(e.message)), []);
+  useEffect(() => { load(); }, [load]);
+
+  const save = async (e) => {
+    e.preventDefault(); setMsg("");
+    try {
+      const c = await api("/api/meter/config", { method: "PUT", body: { ...form, interval: Number(form.interval) } });
+      setCfg((old) => ({ ...old, ...c })); setMsg(t("meterSaved"));
+    }
+    catch (err) { setMsg(err.message); }
+  };
+  const pair = async () => {
+    setMsg(t("pressButton")); setPairing(true);
+    const until = Date.now() + 30000;
+    try {
+      while (Date.now() < until) {
+        const r = await api("/api/meter/pair", { method: "POST", body: { host: form.host } });
+        if (r.status === "paired") { setMsg(t("paired")); await load(); setForm((f) => ({ ...f, driver: "v2" })); return; }
+        await new Promise((ok) => setTimeout(ok, 2000));
+      }
+      setMsg(t("pairTimeout"));
+    } catch (err) { setMsg(err.message); } finally { setPairing(false); }
+  };
+
+  return (
+    <section className="card"><h2>{t("meter")}</h2>
+      <form className="row" onSubmit={save}>
+        <input className="in" placeholder="192.168.178.187" value={form.host} required pattern="[A-Za-z0-9.\-:\[\]]+"
+               onChange={(e) => setForm({ ...form, host: e.target.value })} aria-label={t("meterHost")} />
+        <select className="in" value={form.driver} onChange={(e) => setForm({ ...form, driver: e.target.value })} aria-label="driver">
+          <option value="v1">API v1 (HTTP)</option>
+          <option value="v2" disabled={!cfg?.has_token}>API v2 (WebSocket)</option>
+        </select>
+        <label className="small muted">{t("interval")}
+          <input className="in" type="number" min="0.5" max="60" step="0.5" value={form.interval} style={{ width: 70, marginLeft: 6 }}
+                 onChange={(e) => setForm({ ...form, interval: e.target.value })} /> s
+        </label>
+        <button className="btn primary">{t("save")}</button>
+        <button type="button" className="btn" disabled={pairing || !form.host} onClick={pair}>
+          {cfg?.has_token ? t("pairAgain") : t("pairV2")}
+        </button>
+      </form>
+      <p className="small muted">{cfg && !cfg.host ? t("meterFromEnv") + " " : ""}{t("meterHint")}</p>
+      {msg && <p className="small">{msg}</p>}
+    </section>
+  );
+}
+
+function Tokens({ t }) {
+  const [tokens, setTokens] = useState([]);
+  const [name, setName] = useState("");
+  const [created, setCreated] = useState(null);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => api("/api/tokens").then(setTokens).catch((e) => setErr(e.message)), []);
+  useEffect(() => { load(); }, [load]);
+  const add = async (e) => {
+    e.preventDefault(); setErr("");
+    try { setCreated(await api("/api/tokens", { method: "POST", body: { name } })); setName(""); await load(); }
+    catch (er) { setErr(er.message); }
+  };
+  const revoke = async (tk) => {
+    if (!confirm(`${t("revoke")} ${tk.name}?`)) return;
+    try { await api(`/api/tokens/${tk.id}`, { method: "DELETE" }); await load(); } catch (er) { setErr(er.message); }
+  };
+  const d = (v) => (v ? new Date(v).toLocaleDateString() : "–");
+  return (
+    <section className="card"><h2>{t("apiTokens")}</h2>
+      <p className="small muted" style={{ marginTop: 0 }}>{t("tokensHint")} <a href="/api/docs" target="_blank" rel="noreferrer">/api/docs</a></p>
+      {created && (
+        <div className="card" style={{ background: "transparent" }}>
+          <p className="small" style={{ marginTop: 0 }}>{t("tokenOnce")}</p>
+          <code style={{ wordBreak: "break-all", userSelect: "all" }}>{created.token}</code>
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="btn" onClick={() => navigator.clipboard?.writeText(created.token)}>{t("copy")}</button>
+            <button className="btn" onClick={() => setCreated(null)}>{t("done")}</button>
+          </div>
+        </div>
+      )}
+      {tokens.length > 0 && (
+        <table className="t">
+          <thead><tr><th>{t("name")}</th><th>Token</th><th>{t("lastUsed")}</th><th /></tr></thead>
+          <tbody>
+            {tokens.map((tk) => (
+              <tr key={tk.id} className={tk.revoked_at ? "muted" : ""}>
+                <td>{tk.name}</td><td><code>{tk.prefix}…</code></td><td className="small">{d(tk.last_used_at)}</td>
+                <td style={{ textAlign: "right" }}>
+                  {tk.revoked_at ? <span className="small">{t("revoked")}</span>
+                    : <button className="btn" onClick={() => revoke(tk)}>{t("revoke")}</button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <form className="row" style={{ marginTop: 12 }} onSubmit={add}>
+        <input className="in" placeholder={t("tokenName")} value={name} maxLength={64} required onChange={(e) => setName(e.target.value)} />
+        <button className="btn primary">{t("createToken")}</button>
+      </form>
       {err && <p className="err small">{err}</p>}
     </section>
   );
