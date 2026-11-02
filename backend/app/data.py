@@ -69,6 +69,21 @@ def _totals(rows: list[dict]) -> dict:
     return t
 
 
+def _floor_day(ts: datetime) -> datetime:
+    """Local (Amsterdam) midnight at or before ts, as UTC."""
+    local = ts.astimezone(ZONE)
+    return datetime(local.year, local.month, local.day, tzinfo=ZONE).astimezone(timezone.utc)
+
+
+def _ceil_day(ts: datetime) -> datetime:
+    """Local (Amsterdam) midnight at or after ts, as UTC."""
+    day = _floor_day(ts)
+    if day == ts:
+        return day
+    nxt = (day.astimezone(ZONE) + timedelta(days=1, hours=12)).date()
+    return datetime(nxt.year, nxt.month, nxt.day, tzinfo=ZONE).astimezone(timezone.utc)
+
+
 async def history_rows(pool, resolution: str, start: datetime, end: datetime) -> list[dict]:
     rows = await pool.fetch(HISTORY_SQL[resolution], start, end)
     return [_row(r) for r in rows]
@@ -135,9 +150,17 @@ async def history(request: Request, resolution: Resolution, start: datetime, end
 @router.get("/history/totals", summary="Energy totals for a period (for comparisons)")
 async def history_totals(request: Request, start: datetime, end: datetime):
     start, end = _range(start, end)
-    # Whole local days come from energy_1d; partial days from energy_15m.
-    rows = await history_rows(request.app.state.pool, "15m" if end - start <= timedelta(days=2) else "1d",
-                              start, end)
+    pool = request.app.state.pool
+    first_day, last_day = _ceil_day(start), _floor_day(end)
+    if first_day < last_day:
+        # Whole local days from energy_1d, the partial edge days from energy_15m.
+        rows = await history_rows(pool, "1d", first_day, last_day)
+        if start < first_day:
+            rows += await history_rows(pool, "15m", start, first_day)
+        if last_day < end:
+            rows += await history_rows(pool, "15m", last_day, end)
+    else:
+        rows = await history_rows(pool, "15m", start, end)
     return {"start": start.isoformat(), "end": end.isoformat(), **_totals(rows)}
 
 
