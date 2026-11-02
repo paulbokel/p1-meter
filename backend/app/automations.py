@@ -201,8 +201,13 @@ async def switch(pool, client, a: dict, on: bool, now: datetime) -> bool:
 async def run_automations(pool, client, now: datetime | None = None) -> int:
     now = now or datetime.now(timezone.utc)
     changed = 0
-    for row in await pool.fetch("SELECT * FROM automation WHERE enabled ORDER BY id"):
+    # Disabled but still on: an off action failed when it was disabled; retry it.
+    for row in await pool.fetch("SELECT * FROM automation WHERE enabled OR active ORDER BY id"):
         a = dict(row)
+        if not a["enabled"]:
+            if await switch(pool, client, a, False, now):
+                changed += 1
+            continue
         try:
             want = await desired(pool, a, now)
         except Exception:

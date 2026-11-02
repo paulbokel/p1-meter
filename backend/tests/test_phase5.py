@@ -171,3 +171,34 @@ def test_display_endpoints_accept_query_token():
             assert png.status_code == 200 and png.headers["content-type"] == "image/png"
             assert (await dev.get("/api/today", params={"token": tok})).status_code == 401   # only display endpoints
     run(body)
+
+
+def test_failed_off_on_disable_is_retried_by_worker(monkeypatch):
+    fail = {"on": True}
+    calls = []
+
+    async def flaky(client, action, name, on, env=None):
+        calls.append(on)
+        if not on and fail["on"]:
+            raise RuntimeError("broker down")
+    monkeypatch.setattr(automations, "run_action", flaky)
+
+    async def body(c):
+        await c.post("/api/auth/setup", json={"username": "paul", "password": "longenough"})
+        a = (await c.post("/api/automations", json={
+            "name": "Boiler", "trigger_kind": "price_below", "trigger_params": {"eur_kwh": 1},
+            "action": {"kind": "mqtt", "topic": "b/set"}, "off_action": {"kind": "mqtt", "topic": "b/set",
+                                                                         "payload": "OFF"}})).json()
+        con = await asyncpg.connect(DSN)
+        await con.execute("UPDATE automation SET active = true WHERE id = $1", a["id"])
+        body_ = {k: a[k] for k in ("name", "trigger_kind", "trigger_params", "action", "off_action", "min_on_minutes")}
+        r = (await c.put(f"/api/automations/{a['id']}", json={**body_, "enabled": False})).json()
+        assert r["active"] is True and "broker down" in r["last_result"]       # off failed, still on
+        fail["on"] = False
+        client = httpx.AsyncClient()
+        assert await automations.run_automations(app.state.pool, client) == 1  # worker retries the off action
+        await client.aclose()
+        assert await con.fetchval("SELECT active FROM automation WHERE id = $1", a["id"]) is False
+        await con.close()
+        assert calls == [False, False]
+    run(body)

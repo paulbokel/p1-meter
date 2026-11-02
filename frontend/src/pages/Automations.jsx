@@ -87,7 +87,7 @@ export default function Automations({ user }) {
         {admin && !edit && <button className="btn" style={{ marginTop: 12 }} onClick={() => setEdit({ ...EMPTY })}>{t("addAutomation")}</button>}
         {msg && <p className="small">{msg}</p>}
       </section>
-      {edit && kinds && <Editor value={edit} kinds={kinds} t={t} onCancel={() => setEdit(null)}
+      {edit && kinds && <Editor key={edit.id ?? "new"} value={edit} kinds={kinds} t={t} onCancel={() => setEdit(null)}
         onSave={(body) => run(async () => {
           await api(edit.id ? `/api/automations/${edit.id}` : "/api/automations", { method: edit.id ? "PUT" : "POST", body });
           setEdit(null);
