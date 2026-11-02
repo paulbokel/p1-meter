@@ -208,6 +208,22 @@ def summarize(rows: list[dict], contracts: Contracts | None = None) -> dict:
     return s
 
 
+def allocate_netting(rows: list[dict], correction: float) -> list[dict]:
+    """Spread the period's netting correction over the netting days by their
+    export, so a cost series sums to the summary total."""
+    exp = sum(r["export_kwh"] for r in rows if r["netting"] and r["total_eur"] is not None)
+    out = []
+    for r in rows:
+        r = dict(r)
+        share = correction * r["export_kwh"] / exp if correction and exp and r["netting"] \
+            and r["total_eur"] is not None else 0.0
+        r["netting_eur"] = share
+        if r["total_eur"] is not None:
+            r["total_eur"] += share
+        out.append(r)
+    return out
+
+
 def group(rows: list[dict], resolution: str) -> list[dict]:
     """Group daily cost rows into months or years (local calendar)."""
     if resolution == "1d":
@@ -218,10 +234,10 @@ def group(rows: list[dict], resolution: str) -> list[dict]:
         k = key(r["day"])
         g = out.setdefault(k, {"t": datetime(k.year, k.month, 1, tzinfo=ZONE), "day": k, **{
             f: 0.0 for f in ("import_kwh", "export_kwh", "gas_m3", "import_eur", "export_eur", "gas_eur",
-                             "feed_in_eur", "fixed_eur", "total_eur")}, "missing_price": False, "netting": r["netting"]})
+                             "feed_in_eur", "fixed_eur", "total_eur", "netting_eur")}, "missing_price": False, "netting": r["netting"]})
         for f in ("import_kwh", "export_kwh", "gas_m3", "import_eur", "export_eur", "gas_eur", "feed_in_eur",
-                  "fixed_eur", "total_eur"):
-            if r[f] is not None:
+                  "fixed_eur", "total_eur", "netting_eur"):
+            if r.get(f) is not None:
                 g[f] += r[f]
         g["missing_price"] |= r["missing_price"]
     return list(out.values())

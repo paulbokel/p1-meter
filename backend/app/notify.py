@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -23,6 +24,22 @@ CHANNEL_FIELDS = {
     "webhook": ["url", "secret"],
 }
 SECRET_FIELDS = {"password", "token", "bot_token", "secret"}
+
+
+def safe_error(e: Exception, config: dict | None = None) -> str:
+    """Error text that is safe to store and show: no URLs (Telegram puts the bot
+    token in the path) and no configured secret values."""
+    if isinstance(e, httpx.HTTPStatusError):
+        msg = f"HTTP {e.response.status_code}"
+    elif isinstance(e, httpx.RequestError):
+        msg = type(e).__name__
+    else:
+        msg = f"{type(e).__name__}: {e}"
+    msg = re.sub(r"https?://\S+", "<url>", msg)
+    for k, v in (config or {}).items():
+        if k in SECRET_FIELDS and isinstance(v, str) and v:
+            msg = msg.replace(v, "••••")
+    return msg[:300]
 
 
 def redact(kind: str, config: dict) -> dict:

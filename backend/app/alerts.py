@@ -241,6 +241,11 @@ async def deliver(pool, client, rule, fire: Fire, now: datetime) -> None:
     await dispatch(pool, client, rule["channel_ids"], title, fire.message, {"event_id": ev_id}, ev_id)
 
 
+def _cfg(ch) -> dict:
+    cfg = ch["config"]
+    return json.loads(cfg) if isinstance(cfg, str) else dict(cfg or {})
+
+
 async def dispatch(pool, client, channel_ids, title, body, data=None, event_id=None) -> list[str]:
     if channel_ids:
         channels = await pool.fetch("SELECT * FROM channel WHERE enabled AND id = ANY($1::bigint[])", channel_ids)
@@ -252,8 +257,9 @@ async def dispatch(pool, client, channel_ids, title, body, data=None, event_id=N
             await notify.send(pool, client, dict(ch), title, body, data)
             results.append(f"{ch['name']}: ok")
         except Exception as e:  # one failing channel must not block the others
-            log.warning("channel %s failed: %s", ch["name"], e)
-            results.append(f"{ch['name']}: {type(e).__name__}: {e}"[:300])
+            err = notify.safe_error(e, _cfg(ch))
+            log.warning("channel %s failed: %s", ch["name"], err)
+            results.append(f"{ch['name']}: {err}")
     if event_id is not None:
         await pool.execute("UPDATE event SET notified_at = now(), notify_result = $2 WHERE id = $1", event_id,
                            "; ".join(results) or "no channels configured")

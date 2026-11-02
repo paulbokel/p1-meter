@@ -116,8 +116,10 @@ async def get_costs(request: Request, start: datetime, end: datetime,
     pool = request.app.state.pool
     rows = await costs.cost_rows(pool, start, end)
     contracts = await costs.load_contracts(pool)
+    summary = costs.summarize(rows, contracts)
+    rows = costs.allocate_netting(rows, summary["netting_correction_eur"])
     return {"resolution": resolution, "rows": [_cost_out(r) for r in costs.group(rows, resolution)],
-            "summary": costs.summarize(rows, contracts), "has_contract": bool(contracts.items)}
+            "summary": summary, "has_contract": bool(contracts.items)}
 
 
 @router.get("/costs/today", tags=["costs"])
@@ -128,6 +130,12 @@ async def costs_today(request: Request):
     rows = await costs.cost_rows(pool, start, start + timedelta(days=1))
     contracts = await costs.load_contracts(pool)
     return {**costs.summarize(rows, contracts), "has_contract": contracts.on(now.date()) is not None}
+
+
+async def _avg_spot(pool, kind: str, now: datetime) -> float | None:
+    """Average market price over the last year, as the spot estimate for future dynamic days."""
+    return await pool.fetchval("SELECT avg(price) FROM price WHERE kind = $1 AND ts > $2::timestamptz - interval '365 days' "
+                               "AND ts <= $2", kind, now)
 
 
 @router.get("/costs/projection", tags=["costs"], summary="Projected year-end total vs advance payments")
@@ -150,12 +158,19 @@ async def projection(request: Request, year: int | None = None):
     method = "average_so_far"
     rest = 0.0
     c = contracts.on(now.date())
-    if remaining and c and len(ly_priced) >= remaining * 0.8:
+    elec_spot = gas_spot = None
+    if c and c.kind == "dynamic":
+        elec_spot = await _avg_spot(pool, "elec", now)
+    if c and c.gas_dynamic:
+        gas_spot = await _avg_spot(pool, "gas", now)
+    spot_ok = c is not None and (c.kind != "dynamic" or elec_spot is not None) and \
+        (not c.gas_dynamic or gas_spot is not None)
+    if remaining and c and spot_ok and len(ly_priced) >= remaining * 0.8:
         method = "same_period_last_year"
         for r in ly_priced:
             row = {"import_t1_kwh": r["import_kwh"], "import_t2_kwh": 0, "export_t1_kwh": r["export_kwh"],
                    "export_t2_kwh": 0, "gas_m3": r["gas_m3"]}
-            p = costs.price_bucket(row, c, None, None)
+            p = costs.price_bucket(row, c, elec_spot, gas_spot)
             rest += p["import_eur"] - p["export_eur"] + p["gas_eur"] + c.fixed_per_day(r["day"])
     elif remaining and days_done:
         rest = ytd["total_eur"] / days_done * remaining
@@ -193,7 +208,7 @@ async def get_prices(request: Request, start: datetime, end: datetime, kind: Lit
 async def cheapest(request: Request, hours: float = Query(2, gt=0, le=12)):
     now = datetime.now(timezone.utc)
     rows = await request.app.state.pool.fetch(
-        "SELECT ts, price, duration FROM price WHERE kind = 'elec' AND ts + duration > $1 ORDER BY ts", now)
+        "SELECT ts, price, duration FROM price WHERE kind = 'elec' AND ts >= $1 ORDER BY ts", now)
     if not rows:
         return {"available": False}
     step = rows[0]["duration"]
@@ -387,7 +402,8 @@ async def test_channel(cid: int, request: Request):
         try:
             await notify.send(pool, client, _row(ch), "P1 Monitor test", "This channel works.")
         except Exception as e:
-            raise HTTPException(502, f"{type(e).__name__}: {e}"[:300])
+            cfg = ch["config"]
+            raise HTTPException(502, notify.safe_error(e, json.loads(cfg) if isinstance(cfg, str) else dict(cfg or {})))
     return {"ok": True}
 
 

@@ -108,3 +108,23 @@ def test_baseload_backfill_and_api():
     run(body)
 
 
+
+
+def test_cheapest_skips_started_period_and_dynamic_projection_needs_spot():
+    async def body(c):
+        await c.post("/api/auth/setup", json={"username": "paul", "password": "longenough"})
+        now = datetime.now(UTC)
+        hour = now.replace(minute=0, second=0, microsecond=0)
+        con = await asyncpg.connect(DSN)
+        # the running hour is the cheapest, but it has already started
+        await con.executemany("INSERT INTO price (kind, source, ts, price, duration) VALUES ('elec', 'test', $1, $2, interval '1 hour')",
+                              [(hour + timedelta(hours=i), 0.01 if i == 0 else 0.10 + i / 100) for i in range(6)])
+        await con.close()
+        r = (await c.get("/api/prices/cheapest", params={"hours": 2})).json()
+        assert datetime.fromisoformat(r["block"]["start"]) >= now
+
+        await c.post("/api/contracts", json={"name": "dyn", "kind": "dynamic", "valid_from": "2020-01-01",
+                                              "elec_import_t1": 0.15, "elec_import_t2": 0.15, "gas_price": 0})
+        p = (await c.get("/api/costs/projection")).json()
+        assert p["method"] == "average_so_far"   # no year of last-year data: falls back, never prices at spot 0
+    run(body)

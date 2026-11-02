@@ -117,3 +117,27 @@ def test_quiet_hours_across_midnight():
     assert in_quiet_hours(rule, datetime(2026, 1, 1, 22, 30, tzinfo=UTC))   # 23:30 local
     assert not in_quiet_hours(rule, datetime(2026, 1, 1, 12, 0, tzinfo=UTC))
     assert not in_quiet_hours({"quiet_start": None, "quiet_end": None}, datetime.now(UTC))
+
+
+def test_allocated_netting_makes_series_match_summary():
+    from app.costs import allocate_netting, group
+    rows = [{"t": datetime(2026, 6, d, tzinfo=timezone.utc), "day": date(2026, 6, d), "netting": True,
+             "import_kwh": 50.0, "export_kwh": 75.0, "gas_m3": 0, "import_eur": 15.0, "export_eur": 22.5,
+             "gas_eur": 0, "feed_in_eur": 3.75, "fixed_eur": 0.0, "total_eur": -7.5, "missing_price": False}
+            for d in (1, 2)]
+    correction = 12.5  # 100 kWh in, 150 kWh out at 0.30/0.05: summary -2.50 instead of -15.00
+    out = allocate_netting(rows, correction)
+    assert sum(r["total_eur"] for r in out) == pytest.approx(-15.0 + correction)
+    assert group(out, "1mo")[0]["total_eur"] == pytest.approx(-2.5)
+    assert rows[0]["total_eur"] == -7.5  # input untouched
+
+
+def test_safe_error_hides_tokens_and_urls():
+    import httpx
+    from app.notify import safe_error
+    req = httpx.Request("POST", "https://api.telegram.org/bot123:SECRET/sendMessage")
+    err = httpx.HTTPStatusError("400 for url https://api.telegram.org/bot123:SECRET/sendMessage", request=req,
+                                response=httpx.Response(400, request=req))
+    assert safe_error(err, {"bot_token": "123:SECRET"}) == "HTTP 400"
+    msg = safe_error(RuntimeError("failed with token abcdefgh at http://ha.local/api"), {"token": "abcdefgh"})
+    assert "abcdefgh" not in msg and "ha.local" not in msg
