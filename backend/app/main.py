@@ -11,7 +11,7 @@ import asyncpg
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
-from . import auth, data
+from . import auth, data, insights
 
 WEB_DIR = Path(os.environ.get("WEB_DIR", Path(__file__).parent / "web"))
 COLLECTOR_STALE_S = 120  # F-ALERT-04: no data for > 2 min
@@ -24,10 +24,11 @@ async def lifespan(app: FastAPI):
     await app.state.pool.close()
 
 
-app = FastAPI(title="P1 Energy Monitor", version="0.2.0", lifespan=lifespan,
+app = FastAPI(title="P1 Energy Monitor", version="0.3.0", lifespan=lifespan,
               docs_url="/api/docs", openapi_url="/api/openapi.json")
 app.include_router(auth.router)
 app.include_router(data.router)
+app.include_router(insights.router)
 
 
 def _iso(v):
