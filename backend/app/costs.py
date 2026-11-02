@@ -260,3 +260,30 @@ def cheapest_block(prices: list[tuple[datetime, float]], hours: float, step: tim
         return None
     i, total = best
     return {"start": prices[i][0], "end": prices[i + n - 1][0] + step, "avg_price": total / n}
+
+
+def plan_cheapest(prices: list[tuple[datetime, float, timedelta]], hours: float,
+                  contiguous: bool = False) -> dict | None:
+    """Cheapest-hours planner (F-COST-05, F-AUTO-01): the cheapest `hours` within
+    the given price periods, either as one block or as the cheapest separate
+    periods (merged into ranges). None when there are not enough periods."""
+    if not prices:
+        return None
+    step = prices[0][2]
+    rows = sorted((t, p) for t, p, d in prices if d == step)
+    n = max(1, round(timedelta(hours=hours) / step))
+    if len(rows) < n:
+        return None
+    if contiguous:
+        b = cheapest_block(rows, hours, step)
+        if not b:
+            return None
+        return {"slots": [(b["start"], b["end"])], "avg_price": b["avg_price"]}
+    chosen = sorted(sorted(rows, key=lambda r: (r[1], r[0]))[:n])
+    slots: list[list[datetime]] = []
+    for t, _ in chosen:
+        if slots and slots[-1][1] == t:
+            slots[-1][1] = t + step
+        else:
+            slots.append([t, t + step])
+    return {"slots": [tuple(s) for s in slots], "avg_price": sum(p for _, p in chosen) / n}

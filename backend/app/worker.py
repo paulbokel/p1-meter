@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import asyncpg
 import httpx
 
-from . import alerts, baseload, prices
+from . import alerts, automations, baseload, prices
 
 log = logging.getLogger("worker")
 
@@ -44,7 +44,8 @@ async def job(pool, name: str, fn, every_s: float) -> None:
 async def needs_prices(pool) -> bool:
     return bool(await pool.fetchval(
         "SELECT EXISTS (SELECT 1 FROM tariff_contract WHERE (kind = 'dynamic' OR gas_dynamic) "
-        "AND (valid_to IS NULL OR valid_to > current_date - 2))")) or \
+        "AND (valid_to IS NULL OR valid_to > current_date - 2)) OR EXISTS (SELECT 1 FROM automation "
+        "WHERE enabled AND trigger_kind IN ('price_below', 'cheapest_hours'))")) or \
         os.environ.get("FETCH_PRICES", "").lower() in ("1", "true", "yes")
 
 
@@ -77,6 +78,10 @@ async def main() -> None:
         n = await alerts.run_rules(pool, client, datetime.now(timezone.utc))
         return f"{n} alert(s)" if n else None
 
+    async def automation_job():
+        n = await automations.run_automations(pool, client, datetime.now(timezone.utc))
+        return f"{n} automation(s) switched" if n else None
+
     try:
         if msg := await backfill_quality(pool):
             log.info(msg)
@@ -88,6 +93,7 @@ async def main() -> None:
         job(pool, "prices", price_job, 3600),
         job(pool, "baseload", baseload_job, 1800),
         job(pool, "alerts", alert_job, 60),
+        job(pool, "automations", automation_job, 30),
     )
 
 

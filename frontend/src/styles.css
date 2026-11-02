@@ -62,3 +62,25 @@ table.t th { color: var(--muted); font-weight: 500; font-size: 13px; border-top:
 .delta.up { color: var(--imp); } .delta.down { color: var(--exp); }
 .chart { width: 100%; height: 300px; }
 .chart.tall { height: 360px; }
+
+/* Phase 5: automations editor and kiosk */
+.fld { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); }
+.fld.row { flex-direction: row; align-items: center; gap: 6px; }
+.fld.wide { flex: 1 1 220px; }
+.fld .in { color: var(--fg); }
+.in.invalid { border-color: var(--bad); }
+.auto { padding: 10px 0; border-top: 1px solid var(--line); }
+.auto:first-of-type { border-top: 0; }
+.card h3 { margin: 14px 0 6px; font-weight: 600; }
+.kiosk { position: fixed; inset: 0; display: flex; flex-direction: column; padding: 2.5vh 3vw; gap: 2vh; background: var(--bg); }
+.k-top { display: flex; align-items: baseline; gap: 16px; font-size: clamp(16px, 2.2vh, 28px); }
+.k-clock { font-size: clamp(24px, 5vh, 64px); font-weight: 650; font-variant-numeric: tabular-nums; }
+.k-power { display: flex; flex-direction: column; }
+.k-label { font-size: clamp(18px, 3vh, 36px); }
+.k-value { font-size: clamp(64px, 20vh, 240px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.k-value small, .k-stats small { font-size: .4em; font-weight: 400; color: var(--muted); }
+.k-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 2vw; }
+.k-stats span { display: block; color: var(--muted); font-size: clamp(14px, 2vh, 24px); }
+.k-stats b { font-size: clamp(28px, 6vh, 72px); font-variant-numeric: tabular-nums; }
+.k-chart { flex: 1; min-height: 120px; }
+.chart.k { height: 100%; }

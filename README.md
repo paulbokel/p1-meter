@@ -13,8 +13,8 @@ Design: *Functional Design – Local P1 Energy Monitor* (Claude Doc).
 | 1 – Collect | Compose stack, collector (v1 driver), TimescaleDB schema, status page, nightly backup | done |
 | 2 – See | Live dashboard, history views, CSV export, users | done |
 | 3 – Energy+ parity | Tariffs & costs, base-load analysis, anomaly alerts | done |
-| 4 – Integrate | API tokens, Prometheus, MQTT/HA discovery, v2 driver, power quality | **this release** |
-| 5 – Act | Solar surplus rules, cheapest-hours planner, kiosk mode | planned |
+| 4 – Integrate | API tokens, Prometheus, MQTT/HA discovery, v2 driver, power quality | done |
+| 5 – Act | Automations (solar surplus, price, cheapest hours), planner, kiosk and e-paper display | **this release** |
 
 ## Architecture
 
@@ -157,6 +157,37 @@ it at port 8000 instead.
   per-day table with min/max voltage, sags, swells and outages, and a log of
   power failures, sags/swells and meter outages. Hourly voltage data is kept
   without a time limit.
+
+## Automations, planner and displays
+
+* **Automations** (*Automations* page, admin): switch a device when
+  * there is **solar surplus**: export of at least X W in every minute of the
+    last Y minutes (off again when every minute is below X: no flapping);
+  * the **price** is below X €/kWh (all-in with a dynamic contract, or spot);
+  * it is one of the **cheapest hours** in a daily window, e.g. the cheapest
+    3 hours between 22:00 and 07:00, as one block or as separate hours. The
+    plan is made as soon as the day-ahead prices for the whole window are
+    published and shown next to the automation.
+
+  Actions: an MQTT publish (broker from `MQTT_HOST`, or a host per action), a
+  Home Assistant service call (e.g. `switch.turn_on` with
+  `{"entity_id": "switch.boiler"}`, using a long-lived access token) or a
+  webhook. An optional off action runs when the condition ends; *keep on at
+  least* stops an appliance being switched off mid-cycle. Each switch is
+  logged as an event, and *Test on/off* runs an action right away. Disabling
+  an automation that is on runs its off action. The worker evaluates them
+  every 30 s and fetches day-ahead prices whenever a price automation exists.
+* **Planner** (*Insights → Dynamic prices*): the cheapest N hours from now,
+  optionally *ready by* a time, as one block or separate hours, marked on the
+  price chart.
+* **Kiosk mode**: open `#/kiosk` (or the ⛶ button) on a wall tablet logged in
+  as a viewer: big live power, today's totals and cost, the last hour.
+  Double-tap for fullscreen; it keeps the screen awake and reconnects by
+  itself.
+* **E-paper / custom displays**: `GET /api/display` (compact JSON) and
+  `GET /api/display.png?w=800&h=480` (1-bit PNG; `&grey=true` for 8-bit grey).
+  Both take an API token as a Bearer header or, for devices that can only
+  fetch a URL, `?token=…` (keep such URLs on your LAN).
 
 ## Backup and restore
 

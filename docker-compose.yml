@@ -1,5 +1,13 @@
 name: p1-monitor
 
+# Broker for automations with an MQTT action (worker runs them, backend tests
+# them and switches off on disable).
+x-mqtt-env: &mqtt-env
+  MQTT_HOST: ${MQTT_HOST:-}
+  MQTT_PORT: ${MQTT_PORT:-1883}
+  MQTT_USER: ${MQTT_USER:-}
+  MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+
 x-db-env: &db-env
   DATABASE_URL: postgresql://${POSTGRES_USER:-p1}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-p1}
 
@@ -45,7 +53,8 @@ services:
   backend:
     build: { context: ., dockerfile: backend/Dockerfile }
     restart: unless-stopped
-    environment: *db-env
+    environment:
+      <<: [*db-env, *mqtt-env]
     depends_on:
       migrate: { condition: service_completed_successfully }
     healthcheck:
@@ -61,7 +70,7 @@ services:
     command: ["python", "-m", "app.worker"]
     restart: unless-stopped
     environment:
-      <<: *db-env
+      <<: [*db-env, *mqtt-env]
       FETCH_PRICES: ${FETCH_PRICES:-false}
     depends_on:
       migrate: { condition: service_completed_successfully }

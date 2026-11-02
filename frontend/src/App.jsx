@@ -8,10 +8,12 @@ import Settings from "./pages/Settings.jsx";
 import Insights from "./pages/Insights.jsx";
 import Alerts from "./pages/Alerts.jsx";
 import Quality from "./pages/Quality.jsx";
+import Automations from "./pages/Automations.jsx";
+import Kiosk from "./pages/Kiosk.jsx";
 import Login from "./pages/Login.jsx";
 
-const PAGES = { live: Live, history: History, insights: Insights, alerts: Alerts, quality: Quality, status: Status, settings: Settings };
-const pageFromHash = () => { const p = location.hash.replace(/^#\/?/, "").split("?")[0]; return PAGES[p] ? p : "live"; };
+const PAGES = { live: Live, history: History, insights: Insights, alerts: Alerts, automations: Automations, quality: Quality, status: Status, settings: Settings };
+const pageFromHash = () => { const p = location.hash.replace(/^#\/?/, "").split("?")[0]; return PAGES[p] || p === "kiosk" ? p : "live"; };
 const browserLang = () => (navigator.language || "nl").toLowerCase().startsWith("nl") ? "nl" : "en";
 
 export default function App() {
@@ -32,7 +34,8 @@ export default function App() {
   if (user === undefined) return null;
   return (
     <LangContext.Provider value={lang}>
-      {user === null ? <Login onLogin={setUser} /> : <Shell user={user} page={page} setUser={setUser} />}
+      {user === null ? <Login onLogin={setUser} />
+        : page === "kiosk" ? <Kiosk /> : <Shell user={user} page={page} setUser={setUser} />}
     </LangContext.Provider>
   );
 }
@@ -50,6 +53,7 @@ function Shell({ user, page, setUser }) {
             <button key={p} className={p === page ? "on" : ""} onClick={() => { location.hash = "/" + p; }}>{t(p)}</button>
           ))}
         </nav>
+        <a className="btn" href="#/kiosk" title={t("kiosk")} aria-label={t("kiosk")}>⛶</a>
         <button className="btn" onClick={logout} title={user.username}>{t("logout")}</button>
       </header>
       <Page user={user} setUser={setUser} />
