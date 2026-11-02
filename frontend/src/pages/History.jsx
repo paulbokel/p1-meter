@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, qs } from "../api.js";
 import { fmt, useLocale, useT } from "../i18n.js";
-import { iso, period, sameLastYear, VIEWS } from "../time.js";
+import { iso, parts, period, sameLastYear, TZ, VIEWS } from "../time.js";
 import EChart, { baseOption, cssVar } from "../components/EChart.jsx";
 import { Stat } from "./Live.jsx";
 
@@ -10,23 +10,23 @@ const DRILL = { year: "month", month: "day", week: "day", all: "year" };
 
 function label(loc, view, d) {
   switch (view) {
-    case "day": return d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" });
-    case "week": return d.toLocaleDateString(loc, { weekday: "short", day: "numeric" });
-    case "month": return String(d.getDate());
-    case "year": return d.toLocaleDateString(loc, { month: "short" });
-    default: return String(d.getFullYear());
+    case "day": return d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit", timeZone: TZ });
+    case "week": return d.toLocaleDateString(loc, { weekday: "short", day: "numeric", timeZone: TZ });
+    case "month": return String(parts(d).d);
+    case "year": return d.toLocaleDateString(loc, { month: "short", timeZone: TZ });
+    default: return String(parts(d).y);
   }
 }
 
 function title(loc, view, { start, end }) {
   switch (view) {
-    case "day": return start.toLocaleDateString(loc, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    case "day": return start.toLocaleDateString(loc, { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: TZ });
     case "week": {
-      const last = new Date(end.getTime() - 86400000);
-      return `${start.toLocaleDateString(loc, { day: "numeric", month: "short" })} – ${last.toLocaleDateString(loc, { day: "numeric", month: "short", year: "numeric" })}`;
+      const last = new Date(end.getTime() - 12 * 3600000); // noon of the last day, safe across DST
+      return `${start.toLocaleDateString(loc, { day: "numeric", month: "short", timeZone: TZ })} – ${last.toLocaleDateString(loc, { day: "numeric", month: "short", year: "numeric", timeZone: TZ })}`;
     }
-    case "month": return start.toLocaleDateString(loc, { month: "long", year: "numeric" });
-    case "year": return String(start.getFullYear());
+    case "month": return start.toLocaleDateString(loc, { month: "long", year: "numeric", timeZone: TZ });
+    case "year": return String(parts(start).y);
     default: return "";
   }
 }

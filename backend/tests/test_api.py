@@ -69,6 +69,13 @@ def test_setup_login_roles_and_users():
         await login(c, "paul", "longenough")
         assert (await c.delete("/api/users/1")).status_code == 409      # self
         assert (await c.delete(f"/api/users/{anna}")).status_code == 204
+
+        # password change keeps the requesting session but logs out the user's other sessions
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as other:
+            assert (await login(other, "paul", "longenough")).status_code == 200
+            assert (await c.patch("/api/auth/me", json={"password": "newpassword"})).status_code == 200
+            assert (await c.get("/api/auth/me")).status_code == 200
+            assert (await other.get("/api/auth/me")).status_code == 401
     run(body)
 
 
@@ -95,6 +102,14 @@ def test_history_and_export():
 
         tot = (await c.get("/api/history/totals", params=q)).json()
         assert tot["import_kwh"] == pytest.approx(r["totals"]["import_kwh"])
+
+        # > 2 days with partial edge days: must not count the whole last day (whole days via 1d, edges via 15m)
+        q2 = {"start": "2026-03-27T12:00:00+01:00", "end": "2026-03-30T03:00:00+02:00"}
+        hourly = (await c.get("/api/history", params={"resolution": "1h", **q2})).json()["totals"]
+        tot2 = (await c.get("/api/history/totals", params=q2)).json()
+        assert tot2["import_kwh"] == pytest.approx(hourly["import_kwh"], abs=1e-6)
+        assert tot2["import_kwh"] < (await c.get("/api/history/totals", params={
+            "start": q2["start"], "end": "2026-03-31T00:00:00+02:00"})).json()["import_kwh"]
 
         assert (await c.get("/api/history", params={"resolution": "15m", "start": "2026-01-01T00:00:00+01:00",
                                                     "end": "2026-12-01T00:00:00+01:00"})).status_code == 422

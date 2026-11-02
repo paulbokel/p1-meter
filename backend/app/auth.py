@@ -158,6 +158,8 @@ async def create_user(body: NewUser, request: Request, _: User = Depends(require
 async def _patch(request: Request, user_id: int, body: UserPatch) -> User:
     pool = request.app.state.pool
     async with pool.acquire() as con, con.transaction():
+        # Serialise admin-count checks so two concurrent demotions/deletes cannot remove the last admin.
+        await con.execute("LOCK TABLE app_user IN SHARE ROW EXCLUSIVE MODE")
         if body.role == "viewer":
             admins = await con.fetchval("SELECT count(*) FROM app_user WHERE role = 'admin' AND id <> $1", user_id)
             if admins == 0:
@@ -168,8 +170,10 @@ async def _patch(request: Request, user_id: int, body: UserPatch) -> User:
             user_id, ph.hash(body.password) if body.password else None, body.role, body.language)
         if row is None:
             raise HTTPException(404, "user not found")
-        if body.password:  # log out other sessions of that user
-            await con.execute("DELETE FROM user_session WHERE user_id = $1 AND created_at < now()", user_id)
+        if body.password:  # log out that user's other sessions, keep the one making this request
+            token = request.cookies.get(COOKIE)
+            await con.execute("DELETE FROM user_session WHERE user_id = $1 AND token_hash IS DISTINCT FROM $2",
+                              user_id, _hash_token(token) if token else None)
     return User(**dict(row))
 
 
@@ -184,6 +188,7 @@ async def delete_user(user_id: int, request: Request, admin: User = Depends(requ
         raise HTTPException(409, "cannot delete yourself")
     pool = request.app.state.pool
     async with pool.acquire() as con, con.transaction():
+        await con.execute("LOCK TABLE app_user IN SHARE ROW EXCLUSIVE MODE")
         role = await con.fetchval("SELECT role FROM app_user WHERE id = $1", user_id)
         if role is None:
             raise HTTPException(404, "user not found")
