@@ -1,11 +1,11 @@
 import { useEffect, useRef } from "react";
 import * as echarts from "echarts/core";
 import { LineChart, BarChart } from "echarts/charts";
-import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkLineComponent, MarkAreaComponent, VisualMapComponent } from "echarts/components";
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkLineComponent, MarkAreaComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 
 echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent,
-  MarkLineComponent, MarkAreaComponent, VisualMapComponent, CanvasRenderer]);
+  MarkLineComponent, MarkAreaComponent, CanvasRenderer]);
 
 export const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
