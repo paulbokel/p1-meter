@@ -104,7 +104,8 @@ def test_meter_settings_and_pairing(monkeypatch):
         assert (await c.put("/api/meter/config", json={"host": "10.0.0.2", "driver": "v2"})).status_code == 409
         assert (await c.put("/api/meter/config", json={"host": "x; rm -rf", "driver": "v1"})).status_code == 422
         r = await c.put("/api/meter/config", json={"host": "10.0.0.2", "driver": "v1", "interval": 2})
-        assert r.json() == {"host": "10.0.0.2", "driver": "v1", "interval": 2.0, "has_token": False}
+        assert {k: r.json()[k] for k in ("host", "driver", "interval", "has_token")} == \
+            {"host": "10.0.0.2", "driver": "v1", "interval": 2.0, "has_token": False}
 
         presses = iter([403, 200])
 
@@ -121,4 +122,17 @@ def test_meter_settings_and_pairing(monkeypatch):
         stored = json.loads(await con.fetchval("SELECT value FROM setting WHERE key = 'meter'"))
         await con.close()
         assert stored["token"] == "ABC123" and stored["driver"] == "v2"
+    run(body)
+
+
+def test_env_token_counts_when_collector_runs_v2():
+    async def body(c):
+        await c.post("/api/auth/setup", json={"username": "paul", "password": "longenough"})
+        con = await asyncpg.connect(DSN)
+        await con.execute("UPDATE collector_status SET driver = 'v2', meter_host = '10.0.0.3' WHERE id = 1")
+        await con.close()
+        cfg = (await c.get("/api/meter/config")).json()
+        assert cfg["has_token"] and cfg["active"]["driver"] == "v2"
+        r = await c.put("/api/meter/config", json={"host": "10.0.0.3", "driver": "v2", "interval": 2})
+        assert r.status_code == 200
     run(body)

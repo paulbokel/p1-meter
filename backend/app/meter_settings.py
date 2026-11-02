@@ -37,28 +37,34 @@ async def _put(pool, value: dict) -> None:
                        json.dumps(value))
 
 
-def _public(s: dict) -> dict:
+async def _active(pool) -> dict | None:
+    row = await pool.fetchrow("SELECT meter_host AS host, driver FROM collector_status WHERE id = 1")
+    return dict(row) if row else None
+
+
+def _public(s: dict, active: dict | None) -> dict:
     out = {k: v for k, v in s.items() if k != "token"}
-    out["has_token"] = bool(s.get("token"))
+    # A collector already running v2 has a token, possibly from P1_TOKEN in .env.
+    out["has_token"] = bool(s.get("token")) or bool(active and active.get("driver") == "v2")
+    out["active"] = active
     return out
 
 
 @router.get("/config", summary="Meter settings stored in the app (environment values apply when empty)")
 async def get_config(request: Request):
     pool = request.app.state.pool
-    active = await pool.fetchrow("SELECT meter_host AS host, driver FROM collector_status WHERE id = 1")
-    return {**_public(await _get(pool)), "active": dict(active) if active else None}
+    return _public(await _get(pool), await _active(pool))
 
 
 @router.put("/config", summary="Change meter host, driver or poll interval; the collector restarts")
 async def put_config(body: MeterSettings, request: Request):
     pool = request.app.state.pool
-    s = await _get(pool)
-    if body.driver == "v2" and not s.get("token"):
+    s, active = await _get(pool), await _active(pool)
+    if body.driver == "v2" and not _public(s, active)["has_token"]:
         raise HTTPException(409, "pair with the meter first (API v2 needs a token)")
     s.update(body.model_dump())
     await _put(pool, s)
-    return _public(s)
+    return _public(s, active)
 
 
 async def _request_token(host: str) -> httpx.Response:
@@ -86,4 +92,4 @@ async def pair(body: PairRequest, request: Request):
     s = await _get(pool)
     s.update({"host": body.host, "token": token})
     await _put(pool, s)
-    return {"status": "paired", **_public(s)}
+    return {"status": "paired", **_public(s, await _active(pool))}
