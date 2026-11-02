@@ -10,6 +10,7 @@ export default function Live() {
   const loc = useLocale();
   const [cur, setCur] = useState(null);
   const [today, setToday] = useState(null);
+  const [cost, setCost] = useState(null);
   const [series, setSeries] = useState([]); // [[ms, W]]
   const buf = useRef([]);
 
@@ -35,28 +36,32 @@ export default function Live() {
   }, []);
 
   useEffect(() => {
-    const load = () => api("/api/today").then(setToday).catch(() => {});
+    const load = () => {
+      api("/api/today").then(setToday).catch(() => {});
+      api("/api/costs/today").then(setCost).catch(() => {});
+    };
     load();
     const id = setInterval(load, 30000);
     return () => clearInterval(id);
   }, []);
 
   const option = useMemo(() => {
+    if (!series.length) return null;
     const o = baseOption();
     const imp = cssVar("--imp"), exp = cssVar("--exp");
     return {
       ...o,
       legend: { show: false },
-      tooltip: { ...o.tooltip, valueFormatter: (v) => `${fmt(loc, v)} W` },
+      tooltip: { ...o.tooltip, valueFormatter: (v) => `${fmt(loc, Math.abs(v))} W` },
       xAxis: { ...o.xAxis, type: "time" },
       yAxis: { ...o.yAxis, type: "value", axisLabel: { ...o.yAxis.axisLabel, formatter: (v) => `${fmt(loc, v)} W` } },
-      visualMap: { show: false, dimension: 1, pieces: [{ lt: 0, color: exp }, { gte: 0, color: imp }] },
-      series: [{
-        type: "line", name: t("power"), data: series, showSymbol: false, sampling: "lttb",
-        lineStyle: { width: 1.2 },
-        areaStyle: { opacity: 0.12 },
-        markLine: { silent: true, symbol: "none", data: [{ yAxis: 0 }], lineStyle: { color: exp, type: "dashed" }, label: { show: false } },
-      }],
+      // Import above zero and export below zero as two areas (visualMap gradients crash in ECharts 6).
+      series: [
+        { type: "line", name: t("import"), data: series.map(([x, v]) => [x, v == null ? null : Math.max(v, 0)]),
+          showSymbol: false, sampling: "lttb", lineStyle: { width: 1.2, color: imp }, areaStyle: { opacity: 0.15, color: imp } },
+        { type: "line", name: t("export"), data: series.map(([x, v]) => [x, v == null ? null : Math.min(v, 0)]),
+          showSymbol: false, sampling: "lttb", lineStyle: { width: 1.2, color: exp }, areaStyle: { opacity: 0.15, color: exp } },
+      ],
     };
   }, [series, loc, t]);
 
@@ -95,11 +100,13 @@ export default function Live() {
           <Stat label={t("export")} value={fmt(loc, today?.export_kwh, 2)} unit="kWh" cls="exp" />
           <Stat label={t("net")} value={fmt(loc, today?.net_kwh, 2)} unit="kWh" />
           <Stat label={t("gas")} value={fmt(loc, today?.gas_m3, 3)} unit="m³" cls="gasc" />
+          {cost?.has_contract && <Stat label={t("costsToday")} value={"€ " + fmt(loc, cost.total_eur, 2)} unit=""
+            sub={<span className="muted small">{t("fixedCosts")} € {fmt(loc, cost.fixed_eur, 2)}</span>} />}
         </div>
       </section>
       <section className="card">
         <h2>{t("lastHour")}</h2>
-        <EChart option={option} />
+        {option ? <EChart option={option} /> : <p className="muted">{t("noData")}</p>}
       </section>
     </div>
   );
