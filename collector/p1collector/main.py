@@ -44,13 +44,13 @@ class Collector:
         if self.epochs.check(r):
             msg = f"Energy counter decreased; starting meter epoch {self.epochs.epoch}"
             log.warning(msg)
-            await self.store.new_epoch(self.epochs.epoch, "counter decreased")
-            await self.store.event("meter_epoch", msg, "warning", {"epoch": self.epochs.epoch})
+            self.store.new_epoch(self.epochs.epoch, "counter decreased")
+            self.store.event("meter_epoch", msg, "warning", {"epoch": self.epochs.epoch})
 
         counts = (r.power_fail_count, r.long_power_fail_count)
         if self.last_fail_counts and None not in counts and None not in self.last_fail_counts:
             if counts[0] > self.last_fail_counts[0] or counts[1] > self.last_fail_counts[1]:
-                await self.store.event("power_failure", "Power failure counter increased", "warning",
+                self.store.event("power_failure", "Power failure counter increased", "warning",
                                        {"any": counts[0], "long": counts[1]})
         self.last_fail_counts = counts
 
@@ -60,7 +60,7 @@ class Collector:
         if not self.online:
             self.online = True
             if self.failures >= OFFLINE_AFTER_FAILURES:
-                await self.store.event("meter_online", "P1 meter is reachable again")
+                self.store.event("meter_online", "P1 meter is reachable again")
         self.failures = 0
 
     async def handle_failure(self, err: Exception) -> None:
@@ -69,7 +69,7 @@ class Collector:
         if self.failures == OFFLINE_AFTER_FAILURES:
             self.online = False
             log.error("meter offline after %d failures: %s", self.failures, err)
-            await self.store.event("meter_offline", f"P1 meter unreachable: {err}", "error",
+            self.store.event("meter_offline", f"P1 meter unreachable: {err}", "error",
                                    {"failures": self.failures})
         elif self.failures < OFFLINE_AFTER_FAILURES:
             log.warning("read failed (%d): %s", self.failures, err)
@@ -82,25 +82,24 @@ class Collector:
         log.info("collector started: host=%s driver=%s interval=%ss epoch=%d",
                  self.host, self.driver.name, self.interval, epoch)
 
+        writer = asyncio.create_task(self._writer())
+        try:
+            await self._poll()
+        finally:
+            writer.cancel()
+            await asyncio.gather(writer, return_exceptions=True)
+        log.info("stopping; flushing %d buffered readings", len(self.store.buffer))
+        await self.store.flush()
+        await self.driver.close()
+
+    async def _poll(self) -> None:
+        """Read the meter on a fixed cadence. Never waits on the database."""
         next_tick = time.monotonic()
-        last_flush: float | None = None
-        last_info: float | None = None
         while not self._stop.is_set():
             try:
                 await self.handle_reading(await self.driver.read())
             except MeterError as e:
                 await self.handle_failure(e)
-
-            now = time.monotonic()
-            if last_flush is None or now - last_flush >= FLUSH_EVERY_S:
-                last_flush = now
-                await self.store.flush()
-                hb = dict(online=self.online, last_reading_at=self.last_reading_at,
-                          consecutive_failures=self.failures, last_error=self.last_error)
-                if self.online and (last_info is None or now - last_info >= INFO_EVERY_S):
-                    last_info = now
-                    hb["meter_info"] = await self.driver.info()
-                await self.store.heartbeat(**hb)
 
             next_tick += self.interval
             delay = next_tick - time.monotonic()
@@ -112,9 +111,19 @@ class Collector:
             except asyncio.TimeoutError:
                 pass
 
-        log.info("stopping; flushing %d buffered readings", len(self.store.buffer))
-        await self.store.flush()
-        await self.driver.close()
+    async def _writer(self) -> None:
+        """Flush buffered readings/events and write the heartbeat every few seconds."""
+        last_info: float | None = None
+        while True:
+            await asyncio.sleep(FLUSH_EVERY_S)
+            await self.store.flush()
+            hb = dict(online=self.online, last_reading_at=self.last_reading_at,
+                      consecutive_failures=self.failures, last_error=self.last_error)
+            now = time.monotonic()
+            if self.online and (last_info is None or now - last_info >= INFO_EVERY_S):
+                last_info = now
+                hb["meter_info"] = await self.driver.info()
+            await self.store.heartbeat(**hb)
 
     async def _retry(self, fn):
         delay = 1
