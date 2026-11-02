@@ -1,0 +1,8 @@
+# LAN-only HTTPS with Caddy's internal CA. Set P1_HOSTNAME in .env
+# (e.g. p1.home.lan) and trust Caddy's root cert on your devices, or put
+# this stack behind your existing reverse proxy and drop the caddy service.
+{$P1_HOSTNAME:localhost} {
+	tls internal
+	encode gzip
+	reverse_proxy backend:8000
+}

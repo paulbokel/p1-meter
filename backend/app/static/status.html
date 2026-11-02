@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P1 Monitor status</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1b1f24; --muted:#6a737d; --line:#e3e6ea;
+          --ok:#1a7f37; --bad:#cf222e; --warn:#9a6700; --imp:#d1242f; --exp:#1a7f37; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1115; --card:#181b21; --fg:#e6e8eb; --muted:#9aa4af; --line:#2a2f37;
+            --ok:#3fb950; --bad:#f85149; --warn:#d29922; --imp:#ff7b72; --exp:#3fb950; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 16px; display:flex; align-items:center; gap:10px; }
+  .dot { width:12px; height:12px; border-radius:50%; background:var(--muted); }
+  .dot.ok { background:var(--ok); } .dot.bad { background:var(--bad); }
+  .grid { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 8px; }
+  .big { font-size:34px; font-weight:600; font-variant-numeric: tabular-nums; }
+  .imp { color:var(--imp); } .exp { color:var(--exp); }
+  dl { display:grid; grid-template-columns: auto 1fr; gap:3px 12px; margin:0; }
+  dt { color:var(--muted); } dd { margin:0; text-align:right; font-variant-numeric: tabular-nums; overflow-wrap:anywhere; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:5px 4px; border-top:1px solid var(--line); vertical-align:top; }
+  .sev-warning { color:var(--warn); } .sev-error { color:var(--bad); }
+  .phases { display:grid; grid-template-columns: repeat(3,1fr); gap:6px; text-align:center; margin-top:8px; }
+  .phases > div { border:1px solid var(--line); border-radius:8px; padding:6px; font-variant-numeric: tabular-nums; }
+  .muted { color:var(--muted); font-size:13px; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1><span id="dot" class="dot"></span> P1 Energy Monitor <span class="muted" id="state"></span></h1>
+  <div class="grid">
+    <section class="card">
+      <h2>Now</h2>
+      <div class="big" id="power">–</div>
+      <div class="muted" id="power-label"></div>
+      <div class="phases" id="phases"></div>
+    </section>
+    <section class="card">
+      <h2>Today</h2>
+      <dl id="today"></dl>
+    </section>
+    <section class="card">
+      <h2>Collector</h2>
+      <dl id="collector"></dl>
+    </section>
+    <section class="card">
+      <h2>Meter</h2>
+      <dl id="meter"></dl>
+    </section>
+    <section class="card">
+      <h2>Database &amp; backup</h2>
+      <dl id="db"></dl>
+    </section>
+  </div>
+  <section class="card" style="margin-top:12px">
+    <h2>Recent events</h2>
+    <table id="events"></table>
+  </section>
+  <p class="muted">Phase 1 status page · <a href="/api/docs">API docs</a></p>
+</main>
+<script>
+const fmt = (v, d = 0) => v == null ? "–" : Number(v).toLocaleString("nl-NL", {minimumFractionDigits: d, maximumFractionDigits: d});
+const bytes = b => b == null ? "–" : b > 1e9 ? fmt(b / 1e9, 2) + " GB" : fmt(b / 1e6, 1) + " MB";
+const ago = s => s == null ? "–" : s < 90 ? Math.round(s) + " s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago";
+const when = t => t ? new Date(t).toLocaleString("nl-NL", {timeZone: "Europe/Amsterdam"}) : "–";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const dl = (id, rows) => document.getElementById(id).innerHTML =
+  rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+
+async function refreshLive() {
+  try {
+    const r = await fetch("/api/live");
+    if (!r.ok) return;
+    const d = await r.json();
+    const p = d.power_w;
+    const el = document.getElementById("power");
+    el.textContent = fmt(Math.abs(p)) + " W";
+    el.className = "big " + (p < 0 ? "exp" : "imp");
+    document.getElementById("power-label").textContent = p < 0 ? "exporting" : "importing";
+    document.getElementById("phases").innerHTML = [1, 2, 3].map(i =>
+      `<div><div class="muted">L${i}</div>${fmt(d["power_l" + i + "_w"])} W<br>` +
+      `<span class="muted">${fmt(d["voltage_l" + i + "_v"], 1)} V · ${fmt(d["current_l" + i + "_a"], 1)} A</span></div>`).join("");
+  } catch (e) {}
+}
+
+async function refreshStatus() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    const c = s.collector, db = s.database, m = s.meter || {}, b = s.backup;
+    document.getElementById("dot").className = "dot " + (s.healthy ? "ok" : "bad");
+    document.getElementById("state").textContent = s.healthy ? "collecting" : "not collecting";
+    dl("today", [["Import", fmt(s.today.import_kwh, 2) + " kWh"], ["Export", fmt(s.today.export_kwh, 2) + " kWh"],
+                 ["Net", fmt((s.today.import_kwh || 0) - (s.today.export_kwh || 0), 2) + " kWh"],
+                 ["Gas", fmt(s.today.gas_m3, 3) + " m³"]]);
+    dl("collector", [["Meter", c.meter_host], ["Driver", c.driver], ["Online", c.online ? "yes" : "no"],
+                     ["Last reading", ago(c.last_reading_age_s)], ["Readings last hour", fmt(db.readings_last_hour)],
+                     ["Failures in a row", c.consecutive_failures], ["Buffered", c.buffered_readings],
+                     ["Running since", when(c.started_at)], ["Last error", c.last_error || "–"]]);
+    dl("meter", [["Model", m.meter_model], ["DSMR", m.smr_version], ["Product", m.product_name || m.product_type],
+                 ["Firmware", m.firmware_version], ["API", m.api_version],
+                 ["Wi-Fi", m.wifi_ssid ? `${m.wifi_ssid} (${m.wifi_strength}%)` : "–"]].map(([k, v]) => [k, v ?? "–"]));
+    dl("db", [["Size", bytes(db.size_bytes)], ["History since", when(db.history_since)],
+              ["Raw data since", when(db.oldest_raw)], ["Meter epoch", db.epoch],
+              ["Schema", db.migrations.at(-1) || "–"],
+              ["Last backup", b ? `${when(b.finished_at || b.started_at)} ${b.ok ? "✓" : "✗"}` : "never"],
+              ["Backup size", b ? bytes(b.size_bytes) : "–"]]);
+    document.getElementById("events").innerHTML = s.events.length ? s.events.map(e =>
+      `<tr><td class="muted">${esc(when(e.ts))}</td><td class="sev-${esc(e.severity)}">${esc(e.kind)}</td><td>${esc(e.message)}</td></tr>`).join("")
+      : `<tr><td class="muted">No events yet</td></tr>`;
+  } catch (e) {
+    document.getElementById("dot").className = "dot bad";
+    document.getElementById("state").textContent = "backend unreachable";
+  }
+}
+refreshLive(); refreshStatus();
+setInterval(refreshLive, 1000);
+setInterval(refreshStatus, 5000);
+</script>
+</body>
+</html>
