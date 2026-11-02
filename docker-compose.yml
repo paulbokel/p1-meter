@@ -63,6 +63,11 @@ services:
     environment:
       <<: *db-env
       FETCH_PRICES: ${FETCH_PRICES:-false}
+      # broker for automations with an MQTT action
+      MQTT_HOST: ${MQTT_HOST:-}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_USER: ${MQTT_USER:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
     depends_on:
       migrate: { condition: service_completed_successfully }
 
