@@ -1,4 +1,4 @@
-"""Backend API. Phase 1: health, status and latest reading."""
+"""Backend API: auth, live/history data, status, and the web app (SPA)."""
 from __future__ import annotations
 
 import json
@@ -8,10 +8,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import asyncpg
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
-STATIC = Path(__file__).parent / "static"
+from . import auth, data
+
+WEB_DIR = Path(os.environ.get("WEB_DIR", Path(__file__).parent / "web"))
 COLLECTOR_STALE_S = 120  # F-ALERT-04: no data for > 2 min
 
 
@@ -22,8 +24,10 @@ async def lifespan(app: FastAPI):
     await app.state.pool.close()
 
 
-app = FastAPI(title="P1 Energy Monitor", version="0.1.0", lifespan=lifespan,
+app = FastAPI(title="P1 Energy Monitor", version="0.2.0", lifespan=lifespan,
               docs_url="/api/docs", openapi_url="/api/openapi.json")
+app.include_router(auth.router)
+app.include_router(data.router)
 
 
 def _iso(v):
@@ -37,15 +41,8 @@ async def healthz():
     return {"ok": True}
 
 
-@app.get("/api/live", summary="Latest raw reading")
-async def live():
-    row = await app.state.pool.fetchrow("SELECT * FROM reading_raw ORDER BY ts DESC LIMIT 1")
-    if row is None:
-        raise HTTPException(404, "no readings yet")
-    return {k: _iso(v) for k, v in dict(row).items()}
-
-
-@app.get("/api/status", summary="System status (F-SET-03)")
+@app.get("/api/status", summary="System status (F-SET-03)", tags=["status"],
+         dependencies=[Depends(auth.current_user)])
 async def status():
     pool = app.state.pool
     async with pool.acquire() as con:
@@ -92,6 +89,19 @@ async def status():
     }
 
 
-@app.get("/", include_in_schema=False)
-async def index():
-    return FileResponse(STATIC / "status.html")
+@app.get("/api/{path:path}", include_in_schema=False)
+async def api_404(path: str):
+    raise HTTPException(404, "not found")
+
+
+@app.get("/{path:path}", include_in_schema=False)
+async def spa(path: str):
+    """Serve the built web app; unknown paths fall back to index.html."""
+    f = (WEB_DIR / path).resolve()
+    if path and f.is_file() and WEB_DIR.resolve() in f.parents:
+        headers = {"Cache-Control": "public, max-age=31536000, immutable"} if path.startswith("assets/") else {}
+        return FileResponse(f, headers=headers)
+    index = WEB_DIR / "index.html"
+    if not index.is_file():
+        raise HTTPException(503, "web app not built (run npm run build in frontend/)")
+    return FileResponse(index, headers={"Cache-Control": "no-cache"})
