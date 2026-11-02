@@ -45,6 +45,7 @@ export default function History() {
   const [cmp, setCmp] = useState({});
   const [power, setPower] = useState(null);
   const [zoom, setZoom] = useState(null);
+  const [cost, setCost] = useState(null);
 
   const per = useMemo(() => period(view, anchor), [view, anchor]);
   const res = VIEWS[view].resolution;
@@ -54,6 +55,10 @@ export default function History() {
     setData(null); setZoom(null);
     api(`/api/history?${qs({ resolution: res, start: iso(per.start), end: iso(per.end) })}`)
       .then((d) => !off && setData(d)).catch(() => !off && setData({ rows: [], totals: {} }));
+    const costRes = { day: "1d", week: "1d", month: "1d", year: "1mo", all: "1y" }[view];
+    setCost(null);
+    api(`/api/costs?${qs({ resolution: costRes, start: iso(per.start), end: iso(per.end) })}`)
+      .then((d) => !off && setCost(d)).catch(() => {});
     if (view !== "all") {
       // For the running period, compare against the same elapsed part of the reference period.
       const elapsed = Math.min(Date.now(), per.end.getTime()) - per.start.getTime();
@@ -207,6 +212,8 @@ export default function History() {
         </div>
       </section>
 
+      {cost && <CostCard cost={cost} view={view} t={t} loc={loc} />}
+
       <section className="card">
         <h2>{t("import")} / {t("export")} (kWh)</h2>
         {data && !data.rows.length ? <p className="muted">{t("noData")}</p>
@@ -229,5 +236,37 @@ export default function History() {
         {data && <EChart option={gasOption} />}
       </section>
     </div>
+  );
+}
+
+function CostCard({ cost, view, t, loc }) {
+  const s = cost.summary;
+  const option = useMemo(() => {
+    if (view === "day" || !cost.rows.length) return null;
+    const o = baseOption();
+    return {
+      ...o, legend: { show: false }, grid: { ...o.grid, top: 12 },
+      tooltip: { ...o.tooltip, valueFormatter: (v) => `€ ${fmt(loc, v ?? 0, 2)}` },
+      xAxis: { ...o.xAxis, type: "category", data: cost.rows.map((r) => label(loc, view, new Date(r.t))) },
+      yAxis: { ...o.yAxis, type: "value", axisLabel: { ...o.yAxis.axisLabel, formatter: (v) => `€${fmt(loc, v)}` } },
+      series: [{ type: "bar", name: t("costs"), data: cost.rows.map((r) => r.total_eur), barMaxWidth: 28,
+                 itemStyle: { color: cssVar("--accent") } }],
+    };
+  }, [cost, view, loc, t]);
+  if (!cost.has_contract) return <section className="card"><h2>{t("costs")}</h2><p className="muted">{t("noContract")}</p></section>;
+  const eur = (v) => `€ ${fmt(loc, v, 2)}`;
+  return (
+    <section className="card">
+      <h2>{t("costs")}</h2>
+      <div className="grid">
+        <Stat label={t("total")} value={eur(s.total_eur)} unit="" />
+        <Stat label={t("import")} value={eur(s.import_eur)} unit="" cls="imp" />
+        <Stat label={t("exportCredit")} value={eur(-s.export_eur + s.netting_correction_eur)} unit="" cls="exp" />
+        <Stat label={t("gas")} value={eur(s.gas_eur)} unit="" cls="gasc" />
+        <Stat label={t("fixedCosts")} value={eur(s.fixed_eur)} unit="" />
+      </div>
+      {s.missing_prices && <p className="small muted">⚠ {t("noPrices")}</p>}
+      {option && <EChart option={option} />}
+    </section>
   );
 }

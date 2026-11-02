@@ -25,7 +25,8 @@ nav.tabs button { border: 0; background: none; padding: 6px 12px; border-radius:
 nav.tabs button.on { background: var(--accent); color: #fff; }
 @media (max-width: 640px) {
   nav.tabs.main { position: fixed; bottom: 0; left: 0; right: 0; border-radius: 0; justify-content: space-around;
-    padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); z-index: 10; border-width: 1px 0 0; }
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); z-index: 10; border-width: 1px 0 0; }
+  nav.tabs.main button { padding: 6px 6px; font-size: 13px; }
 }
 .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
