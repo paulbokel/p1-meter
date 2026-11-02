@@ -10,8 +10,8 @@ Design: *Functional Design – Local P1 Energy Monitor* (Claude Doc).
 
 | Phase | Scope | State |
 | --- | --- | --- |
-| 1 – Collect | Compose stack, collector (v1 driver), TimescaleDB schema, status page, nightly backup | **this release** |
-| 2 – See | Live dashboard, history views, CSV export, users | planned |
+| 1 – Collect | Compose stack, collector (v1 driver), TimescaleDB schema, status page, nightly backup | done |
+| 2 – See | Live dashboard, history views, CSV export, users | **this release** |
 | 3 – Energy+ parity | Tariffs & costs, base-load analysis, anomaly alerts | planned |
 | 4 – Integrate | API tokens, MQTT/HA discovery, v2 driver, power quality | planned |
 | 5 – Act | Solar surplus rules, cheapest-hours planner, kiosk mode | planned |
@@ -37,8 +37,16 @@ P1 meter ──HTTP 1 s──▶ collector ──▶ TimescaleDB ◀── backe
     (exact, never integrated power). Energy during a data gap lands in the
     first bucket after the gap. Days follow Europe/Amsterdam (23/25 h on DST days).
   * `event`, `meter_epoch`, `collector_status`, `backup_run`, `setting`.
-* **backend** – FastAPI. Phase 1: `/` status page, `/api/status`,
-  `/api/live`, OpenAPI docs at `/api/docs`.
+* **backend** – FastAPI. Serves the web app and the API (OpenAPI docs at
+  `/api/docs`): login and users, `/api/live` + `/api/live/stream` (SSE, 1 s),
+  `/api/today`, `/api/history`, `/api/history/totals`, `/api/power`,
+  `/api/export.csv`, `/api/status`.
+* **web app** (`frontend/`) – React + Vite + ECharts, installable PWA, light/dark,
+  Dutch/English. Pages: *Live* (net power, per-phase W/V/A, today, rolling
+  hour), *History* (day/week/month/year/all, T1/T2 split, gas, comparison with
+  the previous period and the same period last year, power detail with zoom
+  down to 1 s, CSV download), *Status* and *Settings* (language, password,
+  users with roles admin/viewer).
 * **migrate** – one-shot service that applies `db/migrations/*.sql` in order
   before the collector and backend start.
 * **backup** – nightly `pg_dump -Fc` at `BACKUP_HOUR`, keeps `BACKUP_KEEP` dumps.
@@ -68,8 +76,9 @@ P1 meter ──HTTP 1 s──▶ collector ──▶ TimescaleDB ◀── backe
    ```sh
    docker compose up -d --build
    ```
-4. Open `http://<container-ip>:8000/`. The status page should turn green
-   within a few seconds and show live power per phase.
+4. Open `http://<container-ip>:8000/`. The first visit asks you to create the
+   admin account. After that, *Status* should turn green within a few seconds
+   and *Live* shows power per phase. Add household members under *Settings*.
 
 **Portainer:** add a stack from this Git repository (compose path
 `docker-compose.yml`) and set the variables from `.env.example` in the stack's
@@ -109,12 +118,24 @@ cp .env.example .env    # set POSTGRES_PASSWORD, and P1_HOST=fake-meter
 docker compose --profile dev up -d --build
 ```
 
+Web app with hot reload (proxies `/api` to the backend on port 8000):
+
+```sh
+cd frontend && npm install && npm run dev
+```
+
+Synthetic history for trying the history views (use a separate database):
+
+```sh
+DATABASE_URL=postgresql://p1:pw@localhost:5432/p1demo python devtools/seed_history.py --days 400
+```
+
 Tests:
 
 ```sh
-pip install -r collector/requirements.txt -r backend/requirements.txt pytest
+pip install -r collector/requirements.txt -r backend/requirements.txt pytest httpx
 (cd collector && pytest -q)
-# schema tests need a throwaway TimescaleDB; the database is wiped
+# schema and API tests need a throwaway TimescaleDB; the database is wiped
 (cd backend && TEST_DATABASE_URL=postgresql://p1:pw@localhost:5432/p1test pytest -q)
 ```
 

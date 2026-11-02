@@ -1,0 +1,63 @@
+:root {
+  --bg: #f5f6f8; --card: #ffffff; --fg: #1b1f24; --muted: #66707b; --line: #e2e5e9;
+  --accent: #0f766e; --ok: #1a7f37; --bad: #cf222e; --warn: #9a6700;
+  --imp: #d9480f; --exp: #2f9e44; --gas: #1971c2; --t1: #f08c00; --t2: #d9480f;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115; --card: #181b21; --fg: #e6e8eb; --muted: #9aa4af; --line: #2a2f37;
+    --accent: #2dd4bf; --ok: #3fb950; --bad: #f85149; --warn: #d29922;
+    --imp: #ff8a4c; --exp: #51cf66; --gas: #4dabf7; --t1: #ffc078; --t2: #ff8a4c;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+a { color: inherit; }
+.app { max-width: 1100px; margin: 0 auto; padding: 0 16px 80px; }
+header.top { display: flex; align-items: center; gap: 12px; padding: 14px 0; flex-wrap: wrap; }
+header.top .brand { font-weight: 650; display: flex; gap: 8px; align-items: center; margin-right: auto; }
+nav.tabs { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+nav.tabs button { border: 0; background: none; padding: 6px 12px; border-radius: 7px; cursor: pointer; color: var(--muted); }
+nav.tabs button.on { background: var(--accent); color: #fff; }
+@media (max-width: 640px) {
+  nav.tabs.main { position: fixed; bottom: 0; left: 0; right: 0; border-radius: 0; justify-content: space-around;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); z-index: 10; border-width: 1px 0 0; }
+}
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.stack > * + * { margin-top: 12px; }
+.big { font-size: 44px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.num { font-variant-numeric: tabular-nums; }
+.imp { color: var(--imp); } .exp { color: var(--exp); } .gasc { color: var(--gas); }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.spacer { flex: 1; }
+dl.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+dl.kv dt { color: var(--muted); } dl.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.phases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.phase { border: 1px solid var(--line); border-radius: 10px; padding: 8px; text-align: center; }
+.phase .w { font-size: 20px; font-weight: 600; }
+.stat .v { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.stat .u { font-size: 14px; color: var(--muted); margin-left: 3px; font-weight: 400; }
+.btn { border: 1px solid var(--line); background: var(--card); padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+input.in, select.in { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+.err { color: var(--bad); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+table.t { width: 100%; border-collapse: collapse; }
+table.t td, table.t th { padding: 6px 4px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+table.t th { color: var(--muted); font-weight: 500; font-size: 13px; border-top: 0; }
+.sev-warning { color: var(--warn); } .sev-error { color: var(--bad); }
+.login { max-width: 360px; margin: 12vh auto; }
+.login form > * { display: block; width: 100%; margin-top: 10px; }
+.delta.up { color: var(--imp); } .delta.down { color: var(--exp); }
+.chart { width: 100%; height: 300px; }
+.chart.tall { height: 360px; }
