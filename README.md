@@ -11,8 +11,8 @@ Design: *Functional Design – Local P1 Energy Monitor* (Claude Doc).
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 – Collect | Compose stack, collector (v1 driver), TimescaleDB schema, status page, nightly backup | done |
-| 2 – See | Live dashboard, history views, CSV export, users | **this release** |
-| 3 – Energy+ parity | Tariffs & costs, base-load analysis, anomaly alerts | planned |
+| 2 – See | Live dashboard, history views, CSV export, users | done |
+| 3 – Energy+ parity | Tariffs & costs, base-load analysis, anomaly alerts | **this release** |
 | 4 – Integrate | API tokens, MQTT/HA discovery, v2 driver, power quality | planned |
 | 5 – Act | Solar surplus rules, cheapest-hours planner, kiosk mode | planned |
 
@@ -47,6 +47,10 @@ P1 meter ──HTTP 1 s──▶ collector ──▶ TimescaleDB ◀── backe
   the previous period and the same period last year, power detail with zoom
   down to 1 s, CSV download), *Status* and *Settings* (language, password,
   users with roles admin/viewer).
+* **worker** – background jobs (same image, `python -m app.worker`): alert
+  rules every minute, base load per finished day (with backfill), and
+  day-ahead prices from EnergyZero every hour when a dynamic contract exists
+  (or `FETCH_PRICES=true`). Job health is at `/api/jobs`.
 * **migrate** – one-shot service that applies `db/migrations/*.sql` in order
   before the collector and backend start.
 * **backup** – nightly `pg_dump -Fc` at `BACKUP_HOUR`, keeps `BACKUP_KEEP` dumps.
@@ -87,6 +91,31 @@ environment section.
 **HTTPS:** `docker compose --profile proxy up -d` starts Caddy on 80/443 with
 its internal CA for `P1_HOSTNAME`. If you already run a reverse proxy, point
 it at port 8000 instead.
+
+## Costs, base load and alerts (Energy+ parity)
+
+* **Contracts** (*Settings → Energy contracts*): fixed, day/night or dynamic,
+  each with a validity period, so history keeps the right prices after a
+  supplier switch. Per contract: import price(s), feed-in compensation,
+  netting (*salderen*), gas price, fixed monthly costs, energy-tax rebate
+  and the monthly advance payment. For a dynamic contract the prices are the
+  surcharge on top of the day-ahead price (which gets VAT added).
+* **Costs** appear on *Live* (today) and *History* (per period, with a cost
+  chart). Fixed and day/night contracts are priced per day; dynamic days per
+  15 minutes. With netting, export is credited at the import price up to the
+  imported kWh in the period; the excess gets the feed-in price.
+* **Insights**: base load (5th percentile of 1-minute import power per day,
+  night weighted, export minutes ignored) in W, kWh/year, €/year and as a
+  share of grid import, with a trend chart that marks step changes; the
+  projected year total against your advance payments; and with dynamic
+  prices the cheapest upcoming block for flexible loads.
+* **Alerts** (*Alerts* page): unusual hour/day consumption (vs. the same
+  weekday/hour over the last 8 weeks), base load increase, power above X W for
+  Y min, daily kWh above Z, gas use while away, meter offline, power failure,
+  voltage outside 207–253 V. Each rule has quiet hours, snooze and a
+  repeat window. Channels you can pick (one or more): web push (needs HTTPS),
+  email (SMTP), ntfy, Telegram, Home Assistant notify and a generic webhook;
+  each has a *Test* button.
 
 ## Backup and restore
 
@@ -149,4 +178,5 @@ pip install -r collector/requirements.txt -r backend/requirements.txt pytest htt
 | `P1_POLL_INTERVAL` | `1` | Seconds between polls (min 0.5) |
 | `BACKEND_PORT` | `8000` | Port the web app listens on |
 | `P1_HOSTNAME` | `localhost` | Hostname for Caddy (profile `proxy`) |
+| `FETCH_PRICES` | `false` | Fetch day-ahead prices even without a dynamic contract |
 | `BACKUP_HOUR` / `BACKUP_KEEP` / `BACKUP_DIR` | `3` / `14` / `./backups` | Nightly backup |
