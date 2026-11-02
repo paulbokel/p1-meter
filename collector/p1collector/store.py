@@ -47,6 +47,11 @@ class Store:
         last = {k: v for k, v in dict(row or {}).items() if v is not None}
         return epoch, last
 
+    async def get_setting(self, key: str):
+        await self.connect()
+        v = await self.pool.fetchval("SELECT value FROM setting WHERE key = $1", key)
+        return json.loads(v) if isinstance(v, str) else v
+
     def add(self, r: Reading) -> None:
         if len(self.buffer) == self.buffer.maxlen:
             log.warning("buffer full, dropping oldest reading")

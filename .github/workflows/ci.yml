@@ -31,7 +31,7 @@ jobs:
         working-directory: frontend
         run: npm ci --no-audit --no-fund && npm run build
       - name: Compose file is valid
-        run: POSTGRES_PASSWORD=x docker compose --profile dev --profile proxy config -q
+        run: POSTGRES_PASSWORD=x docker compose --profile dev --profile proxy --profile mqtt config -q
       - name: Images build
         run: docker compose build
         env: { POSTGRES_PASSWORD: x }

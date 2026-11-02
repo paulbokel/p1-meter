@@ -125,6 +125,79 @@ def parse_v1(data: dict, ts: datetime | None = None) -> Reading:
     return r
 
 
+# v2 measurement key -> Reading attribute (API v2, firmware >= 6.00)
+V2_MAP = {
+    "tariff": "active_tariff",
+    "energy_import_t1_kwh": "import_t1_kwh",
+    "energy_import_t2_kwh": "import_t2_kwh",
+    "energy_export_t1_kwh": "export_t1_kwh",
+    "energy_export_t2_kwh": "export_t2_kwh",
+    "power_w": "power_w",
+    "power_l1_w": "power_l1_w",
+    "power_l2_w": "power_l2_w",
+    "power_l3_w": "power_l3_w",
+    "voltage_l1_v": "voltage_l1_v",
+    "voltage_l2_v": "voltage_l2_v",
+    "voltage_l3_v": "voltage_l3_v",
+    "current_l1_a": "current_l1_a",
+    "current_l2_a": "current_l2_a",
+    "current_l3_a": "current_l3_a",
+    "voltage_sag_l1_count": "sag_l1_count",
+    "voltage_sag_l2_count": "sag_l2_count",
+    "voltage_sag_l3_count": "sag_l3_count",
+    "voltage_swell_l1_count": "swell_l1_count",
+    "voltage_swell_l2_count": "swell_l2_count",
+    "voltage_swell_l3_count": "swell_l3_count",
+    "any_power_fail_count": "power_fail_count",
+    "long_power_fail_count": "long_power_fail_count",
+}
+
+
+def parse_any_timestamp(value) -> datetime | None:
+    """v2 uses ISO local time ("2024-06-28T14:00:00"), v1 the DSMR YYMMDDhhmmss form."""
+    if isinstance(value, str) and "-" in value:
+        try:
+            t = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        return (t if t.tzinfo else t.replace(tzinfo=AMS)).astimezone(timezone.utc)
+    return parse_gas_timestamp(value)
+
+
+def parse_v2(data: dict, ts: datetime | None = None) -> Reading:
+    r = Reading(ts=ts or datetime.now(timezone.utc))
+    for key, attr in V2_MAP.items():
+        v = data.get(key)
+        if v is None:
+            continue
+        setattr(r, attr, int(v) if attr in INT_ATTRS else float(v))
+    if r.import_t1_kwh is None and data.get("energy_import_kwh") is not None:
+        r.import_t1_kwh, r.import_t2_kwh = float(data["energy_import_kwh"]), 0.0
+    if r.export_t1_kwh is None and data.get("energy_export_kwh") is not None:
+        r.export_t1_kwh, r.export_t2_kwh = float(data["energy_export_kwh"]), 0.0
+    if r.current_l1_a is None and data.get("current_a") is not None and data.get("current_l2_a") is None:
+        r.current_l1_a = float(data["current_a"])
+    if r.voltage_l1_v is None and data.get("voltage_v") is not None:
+        r.voltage_l1_v = float(data["voltage_v"])
+    for ext in data.get("external") or []:
+        if ext.get("type") == "gas_meter" and ext.get("value") is not None:
+            r.gas_m3 = float(ext["value"])
+            r.gas_ts = parse_any_timestamp(ext.get("timestamp"))
+            break
+    return r
+
+
+def meter_info_v2(data: dict | None, device: dict | None = None) -> dict:
+    d = data or {}
+    info = {k: d.get(k) for k in ("meter_model", "protocol_version", "unique_id") if d.get(k) is not None}
+    if "protocol_version" in info:
+        info["smr_version"] = info.pop("protocol_version")
+    if device:
+        info.update({k: device.get(k) for k in ("product_name", "product_type", "serial",
+                                                 "firmware_version", "api_version") if device.get(k) is not None})
+    return info
+
+
 def meter_info_v1(data: dict, device: dict | None = None) -> dict:
     info = {k: data.get(k) for k in ("meter_model", "smr_version", "unique_id", "wifi_ssid", "wifi_strength")
             if data.get(k) is not None}

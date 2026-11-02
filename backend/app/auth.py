@@ -10,6 +10,7 @@ import asyncpg
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 COOKIE = "p1_session"
@@ -61,7 +62,31 @@ async def _start_session(request: Request, response: Response, user_id: int) -> 
                         secure=request.url.scheme == "https", path="/")
 
 
-async def current_user(request: Request) -> User:
+bearer = HTTPBearer(auto_error=False, description="API token (read-only), created under Settings → API tokens")
+TOKEN_PREFIX = "p1_"
+READ_METHODS = {"GET", "HEAD"}
+
+
+async def _token_user(request: Request, token: str) -> User:
+    pool = request.app.state.pool
+    row = await pool.fetchrow(
+        "SELECT t.id AS token_id, u.id, u.username, u.language FROM api_token t JOIN app_user u ON u.id = t.user_id "
+        "WHERE t.token_hash = $1 AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at > now())",
+        _hash_token(token))
+    if not row:
+        raise HTTPException(401, "invalid or revoked API token", headers={"WWW-Authenticate": "Bearer"})
+    if request.method not in READ_METHODS:
+        raise HTTPException(403, "API tokens are read-only")
+    await pool.execute("UPDATE api_token SET last_used_at = now() WHERE id = $1 AND "
+                       "(last_used_at IS NULL OR last_used_at < now() - interval '1 minute')", row["token_id"])
+    # Tokens never carry admin rights, whoever created them.
+    return User(id=row["id"], username=row["username"], role="viewer", language=row["language"])
+
+
+async def current_user(request: Request,
+                       cred: HTTPAuthorizationCredentials | None = Depends(bearer)) -> User:
+    if cred is not None:
+        return await _token_user(request, cred.credentials)
     token = request.cookies.get(COOKIE)
     if token:
         row = await request.app.state.pool.fetchrow(
@@ -195,3 +220,42 @@ async def delete_user(user_id: int, request: Request, admin: User = Depends(requ
         if role == "admin" and await con.fetchval("SELECT count(*) FROM app_user WHERE role = 'admin'") <= 1:
             raise HTTPException(409, "at least one admin must remain")
         await con.execute("DELETE FROM app_user WHERE id = $1", user_id)
+
+
+# --- API tokens (F-EXP-02) ---------------------------------------------------
+
+class NewToken(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    expires_days: int | None = Field(default=None, ge=1, le=3650)
+
+
+def _token_out(r) -> dict:
+    return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in dict(r).items()}
+
+
+@router.get("/tokens", tags=["tokens"], summary="List API tokens")
+async def list_tokens(request: Request, _: User = Depends(require_admin)):
+    rows = await request.app.state.pool.fetch(
+        "SELECT t.id, t.name, t.prefix, u.username, t.created_at, t.expires_at, t.last_used_at, t.revoked_at "
+        "FROM api_token t JOIN app_user u ON u.id = t.user_id ORDER BY t.revoked_at IS NOT NULL, t.id DESC")
+    return [_token_out(r) for r in rows]
+
+
+@router.post("/tokens", tags=["tokens"], status_code=201,
+             summary="Create a read-only API token; the token is shown only in this response")
+async def create_token(body: NewToken, request: Request, admin: User = Depends(require_admin)):
+    token = TOKEN_PREFIX + secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(days=body.expires_days) if body.expires_days else None
+    row = await request.app.state.pool.fetchrow(
+        "INSERT INTO api_token (name, token_hash, prefix, user_id, expires_at) VALUES ($1, $2, $3, $4, $5) "
+        "RETURNING id, name, prefix, created_at, expires_at",
+        body.name, _hash_token(token), token[:10], admin.id, expires)
+    return {**_token_out(row), "token": token}
+
+
+@router.delete("/tokens/{token_id}", tags=["tokens"], status_code=204, summary="Revoke an API token")
+async def revoke_token(token_id: int, request: Request, _: User = Depends(require_admin)):
+    res = await request.app.state.pool.execute(
+        "UPDATE api_token SET revoked_at = coalesce(revoked_at, now()) WHERE id = $1", token_id)
+    if res.endswith(" 0"):
+        raise HTTPException(404, "token not found")

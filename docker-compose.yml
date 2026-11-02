@@ -36,6 +36,8 @@ services:
       P1_HOST: ${P1_HOST:-192.168.178.187}
       P1_DRIVER: ${P1_DRIVER:-v1}
       P1_POLL_INTERVAL: ${P1_POLL_INTERVAL:-1}
+      P1_TOKEN: ${P1_TOKEN:-}
+      P1_CA_FILE: ${P1_CA_FILE:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -61,6 +63,25 @@ services:
     environment:
       <<: *db-env
       FETCH_PRICES: ${FETCH_PRICES:-false}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  # MQTT publication + Home Assistant discovery (F-EXP-03). Enable with
+  # `docker compose --profile mqtt up -d` and set MQTT_HOST in .env.
+  mqtt:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    command: ["python", "-m", "app.mqtt_bridge"]
+    profiles: ["mqtt"]
+    restart: unless-stopped
+    environment:
+      <<: *db-env
+      MQTT_HOST: ${MQTT_HOST:-}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_USER: ${MQTT_USER:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      MQTT_TOPIC: ${MQTT_TOPIC:-p1monitor}
+      MQTT_DISCOVERY_PREFIX: ${MQTT_DISCOVERY_PREFIX:-homeassistant}
+      MQTT_INTERVAL: ${MQTT_INTERVAL:-5}
     depends_on:
       migrate: { condition: service_completed_successfully }
 

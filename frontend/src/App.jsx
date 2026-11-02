@@ -7,9 +7,10 @@ import Status from "./pages/Status.jsx";
 import Settings from "./pages/Settings.jsx";
 import Insights from "./pages/Insights.jsx";
 import Alerts from "./pages/Alerts.jsx";
+import Quality from "./pages/Quality.jsx";
 import Login from "./pages/Login.jsx";
 
-const PAGES = { live: Live, history: History, insights: Insights, alerts: Alerts, status: Status, settings: Settings };
+const PAGES = { live: Live, history: History, insights: Insights, alerts: Alerts, quality: Quality, status: Status, settings: Settings };
 const pageFromHash = () => { const p = location.hash.replace(/^#\/?/, "").split("?")[0]; return PAGES[p] ? p : "live"; };
 const browserLang = () => (navigator.language || "nl").toLowerCase().startsWith("nl") ? "nl" : "en";
 
