@@ -11,6 +11,7 @@ import pytest
 
 from app.main import app
 from app.migrate import migrate
+from tests.dbreset import reset_schema
 
 DSN = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DSN, reason="TEST_DATABASE_URL not set")
@@ -19,9 +20,7 @@ MIGRATIONS = Path(__file__).resolve().parents[2] / "db" / "migrations"
 
 def run(coro_fn):
     async def wrapper():
-        con = await asyncpg.connect(DSN)
-        await con.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
-        await con.close()
+        await reset_schema(DSN)
         await migrate(DSN, MIGRATIONS)
         app.state.pool = await asyncpg.create_pool(DSN, min_size=1, max_size=3)
         try:

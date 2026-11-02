@@ -74,7 +74,9 @@ class V2WsDriver:
     rest of the collector works the same as with v1.
     """
     name = "v2"
-    STALE_S = 5.0
+    # DSMR 5 meters update every second, older ones every 10 s: allow for the
+    # slowest cadence plus margin before calling the stream stale.
+    STALE_S = 30.0
 
     def __init__(self, host: str, token: str | None, timeout: float = 2.0, ca_file: str | None = None):
         if not token:

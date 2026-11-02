@@ -9,6 +9,7 @@ import asyncpg
 import pytest
 
 from app.migrate import migrate
+from tests.dbreset import reset_schema
 
 DSN = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DSN, reason="TEST_DATABASE_URL not set")
@@ -16,9 +17,7 @@ MIGRATIONS = Path(__file__).resolve().parents[2] / "db" / "migrations"
 
 
 async def _fresh():
-    con = await asyncpg.connect(DSN)
-    await con.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
-    await con.close()
+    await reset_schema(DSN)
     assert await migrate(DSN, MIGRATIONS) == sorted(p.name for p in MIGRATIONS.glob("*.sql"))
     assert await migrate(DSN, MIGRATIONS) == []  # idempotent
     return await asyncpg.connect(DSN)
