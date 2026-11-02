@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, qs } from "../api.js";
 import { fmt, useLocale, useT } from "../i18n.js";
-import { iso, startOfDay } from "../time.js";
+import { TZ, ams, iso, parts } from "../time.js";
 import EChart, { baseOption, cssVar } from "../components/EChart.jsx";
 import { Stat } from "./Live.jsx";
 
@@ -17,8 +17,9 @@ export default function Insights() {
   useEffect(() => {
     api("/api/baseload?days=365").then(setBl).catch(() => {});
     api("/api/costs/projection").then(setProj).catch(() => {});
-    const s = startOfDay(new Date());
-    const e = new Date(s.getFullYear(), s.getMonth(), s.getDate() + 2);
+    const p = parts(new Date());
+    const s = ams(p.y, p.m, p.d);
+    const e = ams(p.y, p.m, p.d + 2);
     api(`/api/prices?${qs({ start: iso(s), end: iso(e) })}`).then(setPrices).catch(() => {});
   }, []);
   useEffect(() => { api(`/api/prices/cheapest?hours=${hours}`).then(setCheap).catch(() => {}); }, [hours]);
@@ -67,7 +68,7 @@ export default function Insights() {
   }, [prices, cheap, loc]);
 
   const eur = (v) => (v == null ? "–" : `€ ${fmt(loc, v, 0)}`);
-  const timeFmt = (s) => new Date(s).toLocaleString(loc, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const timeFmt = (s) => new Date(s).toLocaleString(loc, { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: TZ });
 
   return (
     <div className="stack">
@@ -107,7 +108,7 @@ export default function Insights() {
                 <select className="in" value={hours} onChange={(e) => setHours(Number(e.target.value))}>
                   {[1, 2, 3, 4, 6].map((h) => <option key={h} value={h}>{h} {t("hours")}</option>)}
                 </select>
-                <strong>{timeFmt(cheap.block.start)} – {new Date(cheap.block.end).toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" })}</strong>
+                <strong>{timeFmt(cheap.block.start)} – {new Date(cheap.block.end).toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit", timeZone: TZ })}</strong>
                 <span className="muted">({t("avg")} € {fmt(loc, cheap.block.avg_price, 3)}/kWh)</span>
               </div>
             )}

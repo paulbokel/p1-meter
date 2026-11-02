@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
 import { useLocale, useT } from "../i18n.js";
+import { TZ } from "../time.js";
 
 export default function Alerts({ user }) {
   const t = useT();
@@ -20,7 +21,7 @@ export default function Alerts({ user }) {
   useEffect(() => { load(); }, [load]);
 
   const run = async (fn) => { setErr(""); try { await fn(); load(); } catch (e) { setErr(e.message); } };
-  const when = (v) => (v ? new Date(v).toLocaleString(loc) : "–");
+  const when = (v) => (v ? new Date(v).toLocaleString(loc, { timeZone: TZ }) : "–");
 
   return (
     <div className="stack">
@@ -78,7 +79,7 @@ function RuleRow({ r, t, loc, admin, channels, run }) {
         <div className="muted small">
           {params.map(([k, v]) => `${PARAM_LABELS[k] || k} ${v}`).join(" · ")}
           {r.quiet_start && ` · ${t("quietHours")} ${r.quiet_start.slice(0, 5)}–${r.quiet_end.slice(0, 5)}`}
-          {snoozed && ` · ${t("snoozedUntil")} ${new Date(r.snooze_until).toLocaleString(loc)}`}
+          {snoozed && ` · ${t("snoozedUntil")} ${new Date(r.snooze_until).toLocaleString(loc, { timeZone: TZ })}`}
         </div>
         {edit && (
           <div className="stack" style={{ marginTop: 8 }}>
