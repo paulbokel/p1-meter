@@ -1,0 +1,32 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: timescale/timescaledb:2.17.2-pg16
+        env: { POSTGRES_USER: p1, POSTGRES_PASSWORD: p1, POSTGRES_DB: p1 }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U p1" --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r collector/requirements.txt -r backend/requirements.txt pytest
+      - name: Collector tests
+        working-directory: collector
+        run: python -m pytest -q
+      - name: Schema tests
+        working-directory: backend
+        env: { TEST_DATABASE_URL: "postgresql://p1:p1@localhost:5432/p1" }
+        run: python -m pytest -q
+      - name: Compose file is valid
+        run: POSTGRES_PASSWORD=x docker compose --profile dev --profile proxy config -q
+      - name: Images build
+        run: docker compose build
+        env: { POSTGRES_PASSWORD: x }

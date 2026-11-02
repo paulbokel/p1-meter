@@ -1,0 +1,97 @@
+name: p1-monitor
+
+x-db-env: &db-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-p1}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-p1}
+
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-p1}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-p1}
+      TZ: UTC
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    command: ["python", "-m", "app.migrate"]
+    environment: *db-env
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  collector:
+    build: ./collector
+    restart: unless-stopped
+    environment:
+      <<: *db-env
+      P1_HOST: ${P1_HOST:-192.168.178.187}
+      P1_DRIVER: ${P1_DRIVER:-v1}
+      P1_POLL_INTERVAL: ${P1_POLL_INTERVAL:-1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  backend:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    restart: unless-stopped
+    environment: *db-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+
+  backup:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-p1}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-p1}
+      BACKUP_HOUR: ${BACKUP_HOUR:-3}
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+      TZ: Europe/Amsterdam
+    volumes:
+      - ./backup/backup.sh:/backup.sh:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  caddy:
+    image: caddy:2.8.4
+    restart: unless-stopped
+    profiles: ["proxy"]
+    environment:
+      P1_HOSTNAME: ${P1_HOSTNAME:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on: [backend]
+
+  fake-meter:
+    image: python:3.12-slim
+    profiles: ["dev"]
+    command: ["python", "/fake_meter.py", "--port", "80"]
+    volumes:
+      - ./devtools/fake_meter.py:/fake_meter.py:ro
+
+volumes:
+  db-data:
+  caddy-data:
